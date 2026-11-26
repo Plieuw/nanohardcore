@@ -5,7 +5,9 @@ dubbel switched-capacitor-filter → Mackie 1202-VLZ PRO-channelstrip. Zie `READ
 ontwerp en `docs/` voor de Pages-site.
 
 ## Werkwijze
-- **Eén branch per taak, altijd een pull request.** Nooit direct naar `main`. De eigenaar beoordeelt en merget.
+- **Eén branch per taak, altijd een pull request.** Nooit direct naar `main`.
+- **Toezicht op `main`:** tot de eigenaar (Plieuw) iets anders aangeeft, beoordeelt de toezichthoudende Claude-sessie alle PR's en merget alleen wat aantoonbaar werkt (groene CI plus een eigen controle van de metingen en het geluid). Andere agents mergen niet zelf.
+- **Releases** (een definitieve versie of een nieuwe beta) komen er alleen op verzoek van de eigenaar. Ze worden dan getagd vanaf `main` (`vX.Y` of `vX.Y-betaN`) met release notes en de gemeten eigenschappen.
 - **Kleine PR's per blok.** `dsp/bd909.c`, `dsp/sherman.c`, `dsp/mackie.c` + `dsp/mkcirc.c` en `dsp/chain.c` zijn losse blokken. `chain.c` (CC-map, triggering, gate, uitgang) raakt bijna alles; werk daar met maar één agent tegelijk aan.
 - **`make test` moet slagen** (de CI draait hem bij elke PR). `test/check.py` toetst de beweringen uit README/docs: 909-pitchverloop en hold, Mackie-EQ, Sherman-resonantie en aliasing, de MIDI-map en de triggerdetectie.
   - Faalt een check, pas dan de code aan, niet de grens.
