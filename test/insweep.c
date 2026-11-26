@@ -6,7 +6,7 @@
 #define FS 44100
 static float in[FS*12], out[FS*12];
 int main(int argc,char**argv){
-  static Chain c; chain_init(&c,FS);
+  static Chain c; chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
   chain_midi(&c,0xB0,25,(unsigned char)(127*0.66)); chain_midi(&c,0xB0,26,90); chain_midi(&c,0xB0,88,64+30);
   if(argc>2) chain_midi(&c,0xB0,81,127);
   int n=FS*12; memset(in,0,sizeof in);

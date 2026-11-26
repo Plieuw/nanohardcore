@@ -89,5 +89,18 @@ o = run([build("render", ["host/render.c", *DSP]), os.path.join(B, "out")])
 mp = re.search(r"pulses: sent (\d+) detected (\d+)", o)
 check("trigger: all pulses detected", mp and mp.group(1) == mp.group(2), mp.group(0) if mp else "geen output")
 
+# device-facing behaviour: boot grace, AUDIO mode, 48 kHz, 12-control bank
+o = run([build("device", ["test/device.c", *DSP])])
+v = dict((k, float(x)) for k, x in re.findall(r"^(\w+) ([-\d.]+)$", o, re.M))
+check("boot grace: dry and untouched for 3 s", v["grace_dry_max_err"] < 1e-6, f"{v['grace_dry_max_err']:.2e}")
+check("boot grace: processing after the grace", v["after_grace_processed"] > 0.05, f"{v['after_grace_processed']:.3f}")
+check("48 kHz: all 7 pulses after the grace detected", v["triggers_48k"] == 7, f"{v['triggers_48k']:.0f}")
+check("AUDIO mode: silence in = silence out (909 off)", v["audio_mode_silence"] < 1e-4, f"{v['audio_mode_silence']:.2e}")
+check("AUDIO mode: input reaches the output", v["audio_mode_sine_out"] > 0.02, f"{v['audio_mode_sine_out']:.3f}")
+check("device bank: ENV>F1 at 0.5 is exactly 0", v["dev_env_zero"] == 0.0, f"{v['dev_env_zero']}")
+check("device bank: MID at 0.5 is exactly flat", v["dev_mid_zero"] == 0.0, f"{v['dev_mid_zero']}")
+check("device bank: HARM max = 16 (index 11)", v["dev_harm_max"] == 11, f"{v['dev_harm_max']:.0f}")
+check("state fits the 65,536-byte native ring", v["state_bytes"] < 65536, f"{v['state_bytes']:.0f} bytes")
+
 print(f"\n{len(fails)} failure(s)" + (": " + ", ".join(fails) if fails else ""))
 sys.exit(1 if fails else 0)
