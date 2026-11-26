@@ -1,0 +1,6 @@
+build/
+out/
+rv/test.elf
+*.o
+*.bin
+__pycache__/

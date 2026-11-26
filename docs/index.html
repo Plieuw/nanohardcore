@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nanohardcore — 909 → Sherman → Mackie op de Livtra NanoCore</title>
+<style>
+  :root { --bg:#0f1012; --panel:#17191c; --ink:#e9e6df; --mute:#9a978f; --acc:#ff6a2b; --line:#2a2d31; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:940px; margin:0 auto; padding:48px 20px 80px; }
+  h1 { font-size:2.4rem; letter-spacing:-.02em; margin:0 0 .2em; }
+  h1 span { color:var(--acc); }
+  h2 { font-size:1.25rem; margin:2.6em 0 .7em; padding-bottom:.35em; border-bottom:1px solid var(--line); }
+  h3 { font-size:1rem; margin:1.6em 0 .4em; color:var(--acc); }
+  p, li { color:var(--ink); }
+  .lead { color:var(--mute); font-size:1.08rem; max-width:44em; }
+  .chain { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:28px 0 8px; font:600 .95rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .chain div { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 14px; }
+  .chain b { color:var(--acc); font-weight:600; }
+  .chain i { color:var(--mute); font-style:normal; }
+  .demos { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
+  .demo { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .demo h4 { margin:0 0 4px; font-size:.98rem; }
+  .demo p { margin:0 0 10px; color:var(--mute); font-size:.88rem; }
+  audio { width:100%; height:34px; }
+  figure { margin:18px 0; }
+  figure img { width:100%; border-radius:8px; border:1px solid var(--line); background:#fff; }
+  figcaption { color:var(--mute); font-size:.85rem; margin-top:6px; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; margin:8px 0 18px; }
+  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mute); font-weight:600; }
+  td:first-child { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--acc); white-space:nowrap; }
+  code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.9em; background:var(--panel); padding:1px 5px; border-radius:4px; }
+  .note { border-left:3px solid var(--acc); padding:4px 14px; color:var(--mute); background:var(--panel); border-radius:0 8px 8px 0; }
+  a { color:var(--acc); }
+  footer { margin-top:60px; color:var(--mute); font-size:.85rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>nano<span>hardcore</span></h1>
+<p class="lead">Eigen effectketen voor de Livtra NanoCore (RISC-V, float32, 44,1 kHz): een audio-getriggerde
+TR-909-bassdrum, een Sherman Filterbank-achtig dubbel switched-capacitor-filter en een Mackie 1202-VLZ PRO-channelstrip.
+Waar een schema bestaat, is het op componentniveau gemodelleerd en tegen metingen gecontroleerd.</p>
+
+<div class="chain">
+  <div><i>input</i> trigger / drum</div>→
+  <div><b>TR-909</b> BD</div>→
+  <div><b>Sherman</b> 2× LTC1060</div>→
+  <div><b>Mackie</b> 1202-VLZ PRO</div>→
+  <div><i>out</i> L/R</div>
+</div>
+
+<h2>Demo's</h2>
+<p class="lead">Offline gerenderd met exact de code die ook voor de NanoCore compileert.</p>
+<div class="demos">
+  <div class="demo"><h4>909 BD alleen</h4><p>Zacht accent · attack max · lange decay · korte decay</p><audio controls preload="none" src="audio/01_bd909_alone.mp3"></audio></div>
+  <div class="demo"><h4>Keten, standaard</h4><p>Getriggerd door pulsen op de ingang</p><audio controls preload="none" src="audio/02_chain_default_pulses.mp3"></audio></div>
+  <div class="demo"><h4>Getriggerd door een drumloop</h4><p>Transient-detector op de pedal-ingang</p><audio controls preload="none" src="audio/03_chain_drums.mp3"></audio></div>
+  <div class="demo"><h4>Alles aan</h4><p>Harmonics, resonantie, Mackie heet</p><audio controls preload="none" src="audio/07_full_drums.mp3"></audio></div>
+  <div class="demo"><h4>Sherman INPUT-sweep</h4><p>−20 → +40 dB: buis → OVER → rectify</p><audio controls preload="none" src="audio/10_sherman_input_sweep.mp3"></audio></div>
+  <div class="demo"><h4>…met LIMIT</h4><p>Meer ruimte voor resonantie bij overdrive</p><audio controls preload="none" src="audio/11_sherman_input_sweep_limit.mp3"></audio></div>
+  <div class="demo"><h4>Resonantie-sweep</h4><p>Reso 0,9, 50 Hz → 10 kHz: oscilleert pas hoog</p><audio controls preload="none" src="audio/13_reso_sweep.mp3"></audio></div>
+  <div class="demo"><h4>L-B-H-sweep</h4><p>LP → BP → HP → BP → LP via MIDI</p><audio controls preload="none" src="audio/14_lbh_sweep.mp3"></audio></div>
+  <div class="demo"><h4>ADSR bipolair</h4><p>Filter 1 omhoog, filter 2 omlaag, gate = drumloop</p><audio controls preload="none" src="audio/12_env_bipolar.mp3"></audio></div>
+  <div class="demo"><h4>HARMONICS 16</h4><p>Klok van filter 2 gedeeld door 32</p><audio controls preload="none" src="audio/04_sherman_harm16.mp3"></audio></div>
+  <div class="demo"><h4>HARMONICS 1.5</h4><p>Oneven deler /3, bandpass, max bleed</p><audio controls preload="none" src="audio/05_sherman_harm1p5.mp3"></audio></div>
+  <div class="demo"><h4>Mackie TRIM-sweep</h4><p>0 → +45 dB met auto level: alleen meer drive</p><audio controls preload="none" src="audio/09_mackie_trim_sweep.mp3"></audio></div>
+</div>
+
+<figure><img src="img/spectrogrammen.png" alt="Spectrogrammen van de demo's"><figcaption>Spectrogrammen van een aantal demo's.</figcaption></figure>
+
+<h2>De modellen</h2>
+
+<h3>TR-909 bassdrum — componentniveau, gekalibreerd op echte units</h3>
+<p>Uit de service notes (voicing board): pitch-envelope C9/R21/D7 met TUNE-pot VR2, CV-som IC12, driehoek-VCO IC13a/b
+(C14, R59, Schmitt R49/R50), diode-shaper R52 + D10/D11 (Shockley, opgelost als tabel), VCA Q12 met verzadiging,
+ENV1 C8/VR5, attack-tak Q8/Q9 (Sallen-Key) met ruis. De onderdelen voorspellen ~54 Hz; echte units zakken lager, dus is het model
+gefit op metingen: ~47 Hz rust, ~230 Hz op 5 ms, ~160 Hz op 10 ms, en een body die 50–80 ms vol blijft staan.</p>
+<figure><img src="img/909_golfvorm_spectrum.png" alt="909 golfvorm en spectrum"><figcaption>Kickgolfvorm (accent max) en het spectrum van de keten.</figcaption></figure>
+
+<h3>Sherman Filterbank — klokgestuurd switched-capacitor-filter</h3>
+<ul>
+  <li>Twee LTC1060-achtige sampled-data SVF's met vaste coëfficiënt: f<sub>0</sub> = f<sub>clk</sub>/50 (of /100). Afstemmen gebeurt alleen via de klok.</li>
+  <li>De ingang wordt op de klokflanken gesampled, de uitgang wordt vastgehouden: echte aliasing en spiegelbeelden, plus clock bleed. Die bleed is alleen hoorbaar in het onderste stuk van de lowpass.</li>
+  <li>HARMONICS: beide klokken komen uit één snelle masterklok met delers (1 · 1.5 · 2 … 16); oneven delers geven een duty die niet 50% is.</li>
+  <li>Resonantie: een logaritmische Q-pot, filter 2 sterker dan filter 1, en zelfoscillatie alleen in het midden/hoog door Q-verhoging bij hoge kloksnelheden.</li>
+  <li>INPUT: een buisachtige trap (clean → warm → total), vanaf 60% een harde OVER-trap, vanaf 80% een gelijkrichter (octaaf omhoog). HI cut/boost en LIMIT.</li>
+  <li>ADSR: een condensator-envelope met de input als gate, en per filter een bipolaire diepte met een echte nul.</li>
+</ul>
+<p class="note">Van de Filterbank is geen schema openbaar. De structuur volgt de handleiding en reviews; de niveaus zijn gemarkeerd als <code>CAL</code>.</p>
+<figure><img src="img/13_reso_sweep.png" alt="Resonantie-sweep"><figcaption>Reso 0,9 bij een cutoff van 50 Hz → 10 kHz: laag sterft elke kick uit, vanaf ~3,8 kHz oscilleert hij door.</figcaption></figure>
+
+<h3>Mackie 1202-VLZ PRO — uit het schema (main board 990-217-00 rev B)</h3>
+<p>Instrumentatie-preamp (Q5/Q1 2SA1084 + U7A/U7B NJM2068, 5k11-feedback, U11A ×0,511) met railclipping per poot,
+LO CUT U13A en EQ U27B als echte circuitsimulatie (nodale analyse → exacte toestandsruimte over de condensatoren),
+GAIN-trap U40A (R565/R605/R570/R555), pan en mute, alles 2× oversampled. De EQ-respons komt tot 12 kHz op ±0,4 dB overeen met een onafhankelijke analyse.</p>
+
+<h2>MIDI</h2>
+<p>Kanaal maakt niet uit. CC 120–127 (kanaalmodus) worden genegeerd. Bipolaire knoppen: 64 = exact nul. Note-on = trigger + gate.</p>
+<table>
+<tr><th>CC</th><th>909</th></tr>
+<tr><td>20 · 21 · 22 · 23</td><td>TUNE · DECAY · ATTACK · LEVEL</td></tr>
+<tr><td>14 · 15</td><td>ACCENT · accentbron (0–63 hit-sterkte, 64+ vast)</td></tr>
+<tr><td>16 · 17</td><td>pitch-trim ±12 st · sweep-diepte (mods)</td></tr>
+</table>
+<table>
+<tr><th>CC</th><th>Sherman</th></tr>
+<tr><td>24 · 80 · 81</td><td>INPUT · HI cut/flat/boost · LIMIT</td></tr>
+<tr><td>25 / 29</td><td>FREQ 1 / 2</td></tr>
+<tr><td>26 / 30</td><td>RESO 1 / 2</td></tr>
+<tr><td>27 / 31 · 28 / 85</td><td>L-B-H 1 / 2 · CORRECTIE 1 / 2</td></tr>
+<tr><td>86 · 87 · 106</td><td>HARMONICS · PAR↔SER · klokratio 50/100</td></tr>
+<tr><td>88 / 89</td><td>ADSR → filter 1 / 2 (bipolair)</td></tr>
+<tr><td>102–105 · 5 · 82</td><td>A D S R · snelheid (0 = 4×) · minimale gate</td></tr>
+<tr><td>90</td><td>clock bleed</td></tr>
+</table>
+<table>
+<tr><th>CC</th><th>Mackie / keten</th></tr>
+<tr><td>107 · 108</td><td>TRIM (−15…+45 dB) · LOW CUT</td></tr>
+<tr><td>109 · 110 · 111</td><td>EQ LOW · MID · HI</td></tr>
+<tr><td>112 · 18 · 19 · 113</td><td>GAIN · PAN · MUTE · MAIN MIX</td></tr>
+<tr><td>114 · 115 · 116</td><td>triggergevoeligheid · hold-off · thru</td></tr>
+<tr><td>117 · 118 · 119</td><td>output · lijnniveau Sherman→Mackie · auto level</td></tr>
+</table>
+
+<h2>Status</h2>
+<ul>
+  <li>Compileert voor RV32IMAFDC/ilp32d (de ISA van de NanoCore). De uitvoer onder emulatie komt overeen met de host-build.</li>
+  <li>CPU: ~138 MIPS standaard, ~291 MIPS in het zwaarste geval; 21 KB code, 5,6 KB state.</li>
+  <li><b>Nog niet op de pedal.</b> Het bewezen patch-slot is 1 392 bytes; deze keten heeft een grotere code-plek nodig (FIT-segment uitbreiden) en een eigen state-allocatie. Zie <a href="https://github.com/jcuhnoio/re-nanocore">re-nanocore</a>.</li>
+</ul>
+
+<h2>Bouwen</h2>
+<p><code>make render</code> (demo's naar <code>out/</code>) · <code>make test</code> (metingen) · <code>make rv</code> (RISC-V-build + instructietelling; clang, ld.lld, <code>pip install unicorn pyelftools</code>).</p>
+
+<footer>
+GPL-3.0 · Niet gelieerd aan Livtra, Roland, Sherman of Mackie. Gebruikte bronnen: TR-909 Service Notes, Mackie 1202-VLZ PRO-schema,
+Sherman Filterbank-handleiding, LTC1060-datasheet, re-nanocore. Die documenten zelf staan niet in deze repo.
+· <a href="https://github.com/Plieuw/nanohardcore">github.com/Plieuw/nanohardcore</a>
+</footer>
+</main>
+</body>
+</html>
