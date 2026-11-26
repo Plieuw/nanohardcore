@@ -17,15 +17,10 @@ render: build
 	$(CC) $(CFLAGS) -o build/render host/render.c $(DSP) -lm
 	./build/render out
 
-# measurement tests (each prints its own table)
-test: build
-	$(CC) $(CFLAGS) -o build/ccmap    test/ccmap.c    $(DSP) -lm && ./build/ccmap | tail -3
-	$(CC) $(CFLAGS) -o build/fit909   test/fit909.c   dsp/bd909.c -lm && ./build/fit909 5.14 2.0 1.5 0.2 0.5 0.5
-	$(CC) $(CFLAGS) -o build/eqresp   test/eqresp.c   dsp/mackie.c dsp/mkcirc.c -lm && ./build/eqresp 0 0 1 0
-	$(CC) $(CFLAGS) -o build/reso     test/reso.c     dsp/sherman.c -lm && ./build/reso
-	$(CC) $(CFLAGS) -o build/alias    test/alias.c    dsp/sherman.c -lm && \
-	  ./build/alias 2 0.30 0.5 0.5 build/al.bin && python3 test/alias_an.py build/al.bin
-	python3 test/mna.py
+# regression gate: builds the measurement programs and fails when a documented
+# property (909 pitch track, Mackie EQ, Sherman resonance/aliasing, MIDI map) drifts
+test:
+	python3 test/check.py
 
 # cross-compile for the NanoCore ISA and count instructions in Unicorn
 # (needs clang + ld.lld, pip install unicorn pyelftools)

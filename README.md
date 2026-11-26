@@ -2,9 +2,11 @@
 
 **Demo's en uitleg:** https://plieuw.github.io/nanohardcore/
 
+Werk je hier (als mens of agent) aan mee: lees eerst [`AGENTS.md`](AGENTS.md).
+
 ```
 make render   # demo's renderen naar out/
-make test     # metingen (CC-map, 909-fit, Mackie-EQ, resonantie, aliasing, nodale analyse)
+make test     # regressiepoort: faalt als een gemeten eigenschap uit deze README wegdrijft (ook in CI)
 make rv       # RV32IMAFDC-build + instructietelling in Unicorn (clang, ld.lld, pip install unicorn pyelftools)
 ```
 

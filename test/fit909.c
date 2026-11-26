@@ -2,11 +2,15 @@
 #include <stdlib.h>
 #include <math.h>
 #include "../dsp/bd909.h"
-/* usage: fit909 vth kcv pulse_ms sat tune decay -> prints pitch at checkpoints, hold time */
+/* prints pitch at checkpoints and body hold time */
 int main(int c, char**v){
   static BD909 b; bd909_init(&b,44100);
-  b.cal_vth=atof(v[1]); b.cal_kcv=atof(v[2]); b.cal_pulse_ms=atof(v[3]); b.cal_sat=atof(v[4]);
-  bd909_set(&b,atof(v[5]),atof(v[6]),0,1.0f); bd909_trigger(&b,1.0f);
+  /* usage: fit909 tune decay                    (calibration as compiled in bd909.c)
+   *        fit909 vth kcv pulse_ms sat tune decay (override calibration, for fitting) */
+  float tune, decay;
+  if (c >= 7) { b.cal_vth=atof(v[1]); b.cal_kcv=atof(v[2]); b.cal_pulse_ms=atof(v[3]); b.cal_sat=atof(v[4]); tune=atof(v[5]); decay=atof(v[6]); }
+  else { tune = c > 1 ? atof(v[1]) : 0.5f; decay = c > 2 ? atof(v[2]) : 0.5f; }
+  bd909_set(&b,tune,decay,0,1.0f); bd909_trigger(&b,1.0f);
   int n=44100; static float y[44100]; for(int i=0;i<n;i++) y[i]=bd909_tick(&b);
   double zc[4000]; int nz=0;
   for(int i=1;i<n;i++) if(y[i-1]<0 && y[i]>=0 && nz<4000) zc[nz++]=i-1+(-y[i-1])/(y[i]-y[i-1]);
