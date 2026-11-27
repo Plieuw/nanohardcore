@@ -15,6 +15,8 @@
  *            102 A 103 D 104 S 105 R 5 ADSR speed (0 = 4x) 106 clock ratio 50/100
  *            80 HI cut/flat/boost 81 LIMIT 82 minimum gate
  *   Mackie : 107 TRIM 108 LOW CUT 109 LOW 110 MID 111 HI 112 GAIN 18 PAN 19 MUTE 113 MAIN MIX
+ *   Input  : 3 mode (0-63 TRIGGER: input fires the 909, 64+ AUDIO: 909 bypassed, input
+ *            goes through Sherman + Mackie)
  *   Chain  : 114 trigger sensitivity 115 hold-off 116 thru 117 out level
  *            118 Sherman -> Mackie line level 119 auto level
  */
@@ -29,6 +31,7 @@
 #define OUT_SCALE 1.1f        /* nominal kick (0.45 V at the main out, TRIM 0 dB) -> -6 dBFS */
 #define CLIP_ONSET_DB 14.f    /* TRIM where the first stage (U40A, ~11.5 dB hot at GAIN detent) clips at nominal level */
 #define WIN_MS 1.5f
+#define AUDIO_IN_GAIN 2.0f      /* AUDIO mode: guitar/line level -> ~kick level into Sherman */
 
 void chain_init(Chain *c, float fs)
 {
@@ -44,6 +47,7 @@ void chain_init(Chain *c, float fs)
     c->autolvl = 1; c->autolvl_g = 1.f; c->dirty = 1;
     c->k_gmin = 0.02f;
     c->k_acc_amt = 1.f; c->acc_fixed = 0; c->k_pan = 0.f; c->mute = 0; c->mute_g = 1.f;
+    c->mode = 0; c->grace_left = (int)(CHAIN_GRACE_S * fs); c->wet_g = 0.f;
     c->pan_l = c->pan_r = 1.f; c->thr_p = mx_exp2((-20.f - 40.f * c->k_sens) * 0.33219281f);
     c->a_hp = mx_rc_coef(1.f / (2.f * MX_PI * 30.f), 1.f / fs);
     c->a_fast = mx_rc_coef(0.001f, 1.f / fs);
@@ -100,6 +104,7 @@ void chain_midi(Chain *c, uint8_t st, uint8_t d1, uint8_t d2)
     case 16: b->k_pitch = ccpm(d2); break;                   /* base pitch trim +-12 st (64 = stock) */
     case 17: b->k_depth = ccpm(d2); break;                   /* sweep depth 0..2x (64 = stock) */
     /* Mackie channel strip: PAN (stereo out) and MUTE */
+    case 3:  c->mode = d2 >= 64; break;                      /* input: TRIGGER / AUDIO */
     case 18: c->k_pan = ccpm(d2); break;
     case 19: c->mute = d2 >= 64; break;
     default: return;
@@ -155,11 +160,19 @@ void chain_process(Chain *c, const float *in, float *outL, float *outR, uint32_t
         mackie_update(&c->mk);
         c->dirty = 0;
     }
+    if (c->grace_left > 0) {                            /* boot grace: dry, no DSP load */
+        for (uint32_t i = 0; i < n; i++) {
+            float x = in ? in[i] : 0.f;
+            outL[i] = x; if (outR) outR[i] = x;
+        }
+        c->grace_left -= (int)n;
+        return;
+    }
     for (uint32_t i = 0; i < n; i++) {
         float x = in ? in[i] : 0.f;
         float acc = detect(c, x);
         if (acc >= 0.f) {                               /* every hit: 909 + gate on */
-            bd909_trigger(&c->bd, (c->acc_fixed ? 1.f : acc) * c->k_acc_amt);
+            if (c->mode == 0) bd909_trigger(&c->bd, (c->acc_fixed ? 1.f : acc) * c->k_acc_amt);
             sherman_gate(&c->sh, 1);
             c->gate = 1; c->gate_hold = (int)(c->k_gmin * c->fs);
             c->trig_count++;
@@ -167,7 +180,8 @@ void chain_process(Chain *c, const float *in, float *outL, float *outR, uint32_t
             if (c->gate_hold > 0) c->gate_hold--;
             else if (c->notes == 0 && c->fast < c->thr_p * 0.25f) { c->gate = 0; sherman_gate(&c->sh, 0); }
         }
-        float v = bd909_tick(&c->bd) + c->k_thru * x * VOLT_PER_FS;
+        float v = c->mode == 0 ? bd909_tick(&c->bd) + c->k_thru * x * VOLT_PER_FS
+                               : x * VOLT_PER_FS * AUDIO_IN_GAIN;     /* AUDIO: 909 bypassed */
         v = sherman_tick(&c->sh, v);
         v = mackie_tick(&c->mk, v * LINE_MAX * 2.f * c->k_line);
         float o = mx_clamp(v * OUT_SCALE * c->k_out * c->autolvl_g, -3.f, 3.f);
@@ -175,6 +189,10 @@ void chain_process(Chain *c, const float *in, float *outL, float *outR, uint32_t
         c->mute_g += (c->mute ? -1.f : 1.f) * (1.f / 220.f);          /* 5 ms mute ramp */
         c->mute_g = mx_clamp(c->mute_g, 0.f, 1.f);
         o *= c->mute_g;
+        if (c->wet_g < 1.f) {                           /* 20 ms fade-in after the grace */
+            c->wet_g += 1.f / (0.02f * c->fs); if (c->wet_g > 1.f) c->wet_g = 1.f;
+            o = x + (o - x) * c->wet_g;
+        }
         if (outR) { outL[i] = o * c->pan_l; outR[i] = o * c->pan_r; }
         else outL[i] = o;
     }
@@ -186,4 +204,24 @@ void nc_entry(void *state, const float *in_l, const float *in_r, float *out_l, f
     (void)in_r; (void)params; (void)input_mode;
     chain_process((Chain *)state, in_l, out_l, out_r, frames);
     if (output_mode) *output_mode = out_r ? 1 : 0;
+}
+
+/* ---- stock-firmware parameter bank (12 controls, 0..1) ---- */
+const char *const CHAIN_DEV_NAMES[CHAIN_DEV_CONTROLS] = {
+    "SENS", "TUNE", "DECAY", "DRIVE", "FREQ1", "RESO1", "L-B-H1", "ENV>F1", "HARM", "TRIM", "MID", "LEVEL" };
+const float CHAIN_DEV_DEFAULTS[CHAIN_DEV_CONTROLS] = {
+    0.5f, 0.5f, 0.5f, 0.333f, 0.75f, 0.35f, 0.0f, 0.75f, 0.0f, 0.25f, 0.5f, 0.8f };
+
+void chain_device_controls(Chain *c, const float *p)
+{
+    float q[CHAIN_DEV_CONTROLS];
+    for (int i = 0; i < CHAIN_DEV_CONTROLS; i++) q[i] = mx_clamp(p ? p[i] : CHAIN_DEV_DEFAULTS[i], 0.f, 1.f);
+    c->k_sens = q[0];
+    c->bd.k_tune = q[1]; c->bd.k_decay = q[2];
+    c->sh.k_in = q[3]; c->sh.k_f1 = q[4]; c->sh.k_r1 = q[5]; c->sh.f[0].morph = q[6];
+    c->sh.k_env1 = 2.f * q[7] - 1.f;                       /* 0.5 = exactly 0 */
+    c->sh.harm = (int)(q[8] * 11.f + 0.5f);
+    c->mk.k_trim = q[9]; c->mk.k_mid = 2.f * q[10] - 1.f;  /* 0.5 = flat */
+    c->k_out = q[11];
+    c->dirty = 1;
 }

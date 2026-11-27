@@ -181,6 +181,21 @@ Getest (`test/ccmap.c`): elk van de 46 CC's verandert de output aantoonbaar; CC 
 
 De Mackie op 2× kost nu ~1 550 instructies/sample (EQ-circuit ~710, clippers ~510, halfband ~330). Code: 21 KB, state: 5,6 KB.
 
+## Op de pedal: firmware 1.2-route (in voorbereiding)
+
+De route volgt [re-nanocore](https://github.com/jcuhnoio/re-nanocore) (MIT) voor de officiële firmware **1.2** (48 kHz). Hun Octaver draait daarmee al op hardware: een reset-shim kopieert een aangehangen payload naar vrij RAM (na de native BSS), en de native FX2/PITCH-slot (subtype 8) roept de adapter aan. De state gebruikt de vergrote 64 KB-ring van die slot. Onze keten past ruim: ~22 KB code, 3,8 KB state.
+
+**Veiligheid (niet bricken)**
+- **Herstel:** loopt via de stock-updater (MIDI `F0 7D 44 46 55 01 F7` → Lupgrader → raw DFU). Volledige backup eerst; alleen gewijzigde sectoren schrijven; volledige readback-verificatie vóór de reboot.
+- **Opstartpad:** gelijk aan het op hardware bewezen 1.2-pakket van re-nanocore. Onze init is minimaal: ~55 000 instructies, geen libm, de shaper-tabel is constant (`tools/gen_shaper.c`).
+- **Opstart-grace:** na de init geeft de keten 3 s de input droog door en fadet dan in. Zelfs een opgeslagen preset met dit effect aan belast de CPU niet voordat USB/MIDI (en dus de updater) bereikbaar is.
+- **CPU-bewaking:** de overload-guard van de adapter latcht bypass bij overschrijding van het budget. Gemeten op de pedal (octaver-tests): ~360–420 instructies/µs. Onze keten kost standaard ~3 100 instr/sample, ~40% van het 48 kHz-budget.
+- **Restrisico:** als een image helemaal niet opstart, is er geen bekende herstelroute buiten de applicatie. Daarom blijft het opstartpad gelijk aan het bewezen pakket.
+
+**12 knoppen via de stock-firmware** (`CHAIN_DEV_*` in `chain.c`): SENS · TUNE · DECAY · DRIVE · FREQ1 · RESO1 · L-B-H1 · ENV>F1 · HARM · TRIM · MID · LEVEL. ENV>F1 en MID: 0,5 = exact nul/vlak. De rest staat op vaste waarden. De eigen UI en de volledige CC-map volgen later.
+
+**Input-modus (CC 3):** TRIGGER (de input vuurt de 909) of AUDIO (909 overgeslagen, de input zelf gaat door Sherman en Mackie; hits gaten nog steeds de ADSR).
+
 ## Integratie op de NanoCore: wat nog moet
 - Het bewezen patch-slot (Velvet Vibrato) is 1 392 bytes. Deze keten is ~16 KB code, dus die past daar niet in. Nodig is een grotere code-plek: het FIT-segment uitbreiden (de OS-partitie heeft ~124 KB rekenkundige ruimte, maar die is nog niet als uitvoerbaar gemapt bevestigd) of een gedoneerde effectroutine.
 - De 5,6 KB state moet uit een eigen allocatie komen, met init/reset-paden.

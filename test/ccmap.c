@@ -7,7 +7,7 @@
 #define N (FS*3/4)
 static float in[N], oL[N], oR[N], rL[N], rR[N];
 static void run(int cc, int val, float *L, float *R){
-  static Chain c; chain_init(&c,FS);
+  static Chain c; chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
   /* a context where every control is audible: low clocks for bleed, envelopes on, mild drive */
   chain_midi(&c,0xB0,25,60); chain_midi(&c,0xB0,26,70); chain_midi(&c,0xB0,29,50); chain_midi(&c,0xB0,30,70);
   chain_midi(&c,0xB0,88,90); chain_midi(&c,0xB0,89,40); chain_midi(&c,0xB0,27,30); chain_midi(&c,0xB0,31,30);
@@ -24,9 +24,9 @@ int main(){
     "Sh INPUT","Sh FREQ1","Sh RESO1","Sh L-B-H1","Sh CORR1","Sh FREQ2","Sh RESO2","Sh L-B-H2","Sh CORR2","Sh HARMONICS","Sh PAR/SER","Sh ADSR>f1","Sh ADSR>f2","Sh bleed",
     "Sh A","Sh D","Sh S","Sh R","Sh ADSR-snelheid","Sh klokratio","Sh HI","Sh LIMIT","Sh min. gate",
     "Mk TRIM","Mk LOW CUT","Mk LOW","Mk MID","Mk HI","Mk GAIN","Mk PAN","Mk MUTE","Mk MAIN",
-    "trig gevoelig","hold-off","thru","out","lijnniveau","auto level"};
-  int ccs[]={20,21,22,23,14,15,16,17, 24,25,26,27,28,29,30,31,85,86,87,88,89,90, 102,103,104,105,5,106,80,81,82, 107,108,109,110,111,112,18,19,113, 114,115,116,117,118,119};
-  int vals[]={127,127,127,10,10,127,100,120,110,110,127,127,127,110,127,127,127,64,127,127,127,127,100,100,127,110,0,127,127,127,127,120,127,127,127,127,127,0,127,120,127,0,127,40,127,0};
+    "trig gevoelig","hold-off","thru","out","lijnniveau","auto level","input-modus"};
+  int ccs[]={20,21,22,23,14,15,16,17, 24,25,26,27,28,29,30,31,85,86,87,88,89,90, 102,103,104,105,5,106,80,81,82, 107,108,109,110,111,112,18,19,113, 114,115,116,117,118,119,3};
+  int vals[]={127,127,127,10,10,127,100,120,110,110,127,127,127,110,127,127,127,64,127,127,127,127,100,100,127,110,0,127,127,127,127,120,127,127,127,127,127,0,127,120,127,0,127,40,127,0,127};
   int n=sizeof(ccs)/sizeof(ccs[0]), bad=0;
   for(int k=0;k<n;k++){ run(ccs[k],vals[k],oL,oR); double dl=diff(oL,rL), dr=diff(oR,rR); double d=dl>dr?dl:dr;
     printf("CC %3d %-18s verschil %6.1f dB %s\n",ccs[k],names[k],d, d<-60?"  <-- GEEN EFFECT":""); if(d<-60) bad++; }

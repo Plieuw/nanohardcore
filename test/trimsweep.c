@@ -6,7 +6,7 @@
 #define FS 44100
 static float in[FS*12], out[FS*12];
 int main(int argc,char**argv){
-  static Chain c; chain_init(&c,FS);
+  static Chain c; chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
   int n=FS*12; memset(in,0,sizeof in);
   for(int t=FS/10;t<n-FS/4;t+=FS/4) for(int i=0;i<220;i++) in[t+i]=0.9f;
   for(int i=0;i<n;i+=64){ float tr=0.25f+0.75f*(float)i/n; c.mk.k_trim=tr; c.dirty=1; chain_process(&c,in+i,out+i,0,64); }

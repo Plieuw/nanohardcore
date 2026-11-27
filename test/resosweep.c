@@ -4,7 +4,7 @@
 #include "../dsp/chain.h"
 #define FS 44100
 static float in[FS*12], out[FS*12];
-int main(int argc,char**argv){ static Chain c; chain_init(&c,FS);
+int main(int argc,char**argv){ static Chain c; chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
   chain_midi(&c,0xB0,26,115); chain_midi(&c,0xB0,27,64); chain_midi(&c,0xB0,88,64);
   chain_midi(&c,0xB0,29,127); chain_midi(&c,0xB0,30,0); chain_midi(&c,0xB0,31,0); chain_midi(&c,0xB0,87,127); /* serial, f2 wide open */
   int n=FS*12; memset(in,0,sizeof in); for(int t=FS/10;t<n-FS/4;t+=FS/2) for(int i=0;i<220;i++) in[t+i]=0.9f;

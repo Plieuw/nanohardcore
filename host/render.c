@@ -91,7 +91,7 @@ int main(int argc, char **argv)
 
     /* 2: trigger pulses through default chain */
     int np = make_pulses(buf_in, n);
-    chain_init(&c, FS);
+    chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
     int got = run(&c, buf_in, buf_out, n);
     printf("pulses: sent %d detected %d\n", np, got);
     wav(dir, "02_in_pulses", buf_in, n);
@@ -99,7 +99,7 @@ int main(int argc, char **argv)
 
     /* 3: drum loop as trigger */
     int nd = make_drums(buf_in, n);
-    chain_init(&c, FS);
+    chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
     verbose = 1; got = run(&c, buf_in, buf_out, n); verbose = 0;
     printf("drums: hits %d detected %d\n", nd, got);
     wav(dir, "03_in_drums", buf_in, n);
@@ -107,28 +107,28 @@ int main(int argc, char **argv)
 
     /* 4: Sherman harmonics: sync 16 (/32 divider), high reso, low cutoff, serial */
     make_pulses(buf_in, n);
-    chain_init(&c, FS);
+    chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
     cc(&c, 86, 127); cc(&c, 25, 70); cc(&c, 26, 110); cc(&c, 30, 120); cc(&c, 87, 100);
     cc(&c, 88, 90); cc(&c, 90, 100); cc(&c, 24, 70);
     run(&c, buf_in, buf_out, n);
     wav(dir, "04_sherman_harm16", buf_out, n);
 
     /* 5: Sherman sync ratio 1.5 / 3 (odd divider), band-pass */
-    chain_init(&c, FS);
+    chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
     cc(&c, 86, 23); cc(&c, 25, 60); cc(&c, 26, 115); cc(&c, 27, 64); cc(&c, 30, 115); cc(&c, 31, 64);
     cc(&c, 88, 100); cc(&c, 90, 127);
     run(&c, buf_in, buf_out, n);
     wav(dir, "05_sherman_harm1p5", buf_out, n);
 
     /* 6: Mackie cooked: trim high, mid boost, gain up */
-    chain_init(&c, FS);
+    chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
     cc(&c, 107, 100); cc(&c, 110, 110); cc(&c, 109, 100); cc(&c, 112, 115); cc(&c, 117, 90);
     run(&c, buf_in, buf_out, n);
     wav(dir, "06_mackie_cooked", buf_out, n);
 
     /* 7: full monty on drum loop */
     make_drums(buf_in, n);
-    chain_init(&c, FS);
+    chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
     cc(&c, 86, 46); cc(&c, 25, 66); cc(&c, 26, 100); cc(&c, 30, 104); cc(&c, 87, 64); cc(&c, 88, 100);
     cc(&c, 24, 90); cc(&c, 90, 90); cc(&c, 21, 90); cc(&c, 22, 100);
     cc(&c, 107, 90); cc(&c, 110, 100); cc(&c, 112, 105);
@@ -137,7 +137,7 @@ int main(int argc, char **argv)
 
     /* 8: Sherman aliasing check: sine sweep via thru, kick level 0, no drive, free mode */
     {
-        chain_init(&c, FS);
+        chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
         cc(&c, 23, 0); cc(&c, 116, 127); cc(&c, 24, 30); cc(&c, 25, 64); cc(&c, 26, 30);
         cc(&c, 29, 127); cc(&c, 88, 64); cc(&c, 90, 0); cc(&c, 107, 15); cc(&c, 114, 0);
         double ph = 0;
@@ -147,7 +147,7 @@ int main(int argc, char **argv)
     }
     /* 12: ADSR bipolar on both filters (free, parallel): f1 up, f2 down, drum loop gates */
     make_drums(buf_in, n);
-    chain_init(&c, FS);
+    chain_init(&c, FS); c.grace_left = 0; c.wet_g = 1.f;
     cc(&c, 25, 55); cc(&c, 29, 95); cc(&c, 26, 100); cc(&c, 30, 100); cc(&c, 27, 64); cc(&c, 31, 0);
     cc(&c, 88, 120); cc(&c, 89, 10); cc(&c, 102, 10); cc(&c, 103, 45); cc(&c, 104, 50); cc(&c, 105, 55);
     run(&c, buf_in, buf_out, n);

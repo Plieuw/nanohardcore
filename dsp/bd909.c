@@ -18,6 +18,9 @@
  */
 #include "bd909.h"
 #include "mathx.h"
+#ifndef BD909_RUNTIME_SHAPER
+#include "bd909_shaper.h"   /* constant table: cheap, deterministic init (boot safety) */
+#endif
 
 /* components */
 #define R21 2.2e3f
@@ -86,6 +89,7 @@ static float diode_r_current(float dv, float r)
     return i;
 }
 
+#ifdef BD909_RUNTIME_SHAPER
 static void build_shaper(BD909 *b)
 {
     const float rl = R53 + R43;
@@ -102,11 +106,18 @@ static void build_shaper(BD909 *b)
     }
 }
 
+#endif
+
 static inline float shaper(const BD909 *b, float vt)
 {
+#ifdef BD909_RUNTIME_SHAPER
+    const float *t = b->shaper;
+#else
+    const float *t = BD909_SHAPER; (void)b;
+#endif
     float x = (mx_clamp(vt, -5.999f, 5.999f) + 6.f) * (BD_SHAPER_N / 12.f);
     int i = (int)x; float f = x - (float)i;
-    return b->shaper[i] + f * (b->shaper[i + 1] - b->shaper[i]);
+    return t[i] + f * (t[i + 1] - t[i]);
 }
 
 static float par(float a, float b) { return a * b / (a + b); }
@@ -137,7 +148,9 @@ void bd909_init(BD909 *b, float fs)
     b->a_env2 = mx_rc_coef(R42 * C12, b->dt);
     b->a_dc = mx_rc_coef(1.f / (2.f * MX_PI * 4.f), b->dt);
     b->cal_vth = CAL_VTH; b->cal_kcv = CAL_KCV; b->cal_pulse_ms = CAL_PULSE; b->cal_sat = CAL_SAT;
+#ifdef BD909_RUNTIME_SHAPER
     build_shaper(b);
+#endif
     bd909_set(b, 0.5f, 0.5f, 0.5f, 0.8f);
 }
 

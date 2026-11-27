@@ -32,7 +32,9 @@ typedef struct {
     int   trig_left;
     float vtrig;
     uint32_t seed;
-    float shaper[BD_SHAPER_N + 1];
+#ifdef BD909_RUNTIME_SHAPER
+    float shaper[BD_SHAPER_N + 1];     /* only for tools/gen_shaper.c */
+#endif
 } BD909;
 
 void  bd909_init(BD909 *b, float fs);
