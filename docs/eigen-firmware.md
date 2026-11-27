@@ -41,11 +41,16 @@ Alle adressen zijn segment 3 (laadadres `0x40000000`) of ITCM (`0x30040000`, seg
 | audiotellers | som `0x3008a9e0`, calls `0x3008a9f0`, deadline `0x3008a9fc`, overruns `0x3008aa00`; schrijvers o.a. `0x4000ee20`, `0x4000f952`, `0x40010d3c`, `0x40011588` | |
 | kritieke secties | `0x30045ea8` = `csrrci a0,mstatus,8; ret` (interrupts uit), `0x30045eae` = `csrw mstatus,a0; ret` (terug); 401 aanroepen | ITCM |
 | FX-dispatch | FX2-familie `0x40069820` (gehaakt); runtime-subtype-array `0x400b0ec0` (FX2 = slot 1) | |
+| brokverwerker | `0x30043800(dma_in, dma_out, …)`: mono-ingang → float L/R, versterker, dispatcher, uitgang → int32 | ITCM |
+| ketendispatcher | `0x30041d7e(0x301038b8, inL, inR, outL, outR, 64, ctx, res)`, procestabel `0x4008ea9c` (12 × 8 B) | ITCM (gehaakt op `0x3004395e`) |
+| versterker/NAM | `0x400733f4(state, L, R, params, type, vlag)`, state `[0x3010487c]` | aanroep gehaakt op `0x3004392a` |
 
 ## Fase A: alleen HARDCORE in het audiopad
 
 **Doel:** de hele Livtra-keten (versterkers, NAM, IR's, effecten, tuner) draait niet meer.
 Input → `chain_process` → output, met de volledige CPU.
+
+**Status (2026-11-27):** gebouwd en in emulatie bewezen (stap 3 hieronder). Nog niet op hardware.
 
 **Aanpak:** de per-blok-functie vinden die de effectketen aanroept, tussen de
 DMA-buffer-ophaal en de teruggave. De timingtellers worden juist rond die aanroep
@@ -102,21 +107,65 @@ lopen met een gesimuleerd DMA-buffer.
   tot `0x300457c8`, met de conversies rond `0x30044d22`/`0x30044dec`/`0x30044f02` en de
   aanroepen `0x300426c0`, `0x30043800`, `0x30042780`, `0x30048532`.
 
-**Volgende sessie:**
-1. Vanaf `0x30044c48` het pad volgen tot de float-buffers die de keten in en uit gaan.
-2. Het haakpunt kiezen.
-3. In `emulate.py` één blok draaien met een gesimuleerd DMA-buffer (seg0 + seg3 laden,
-   I2S-registers `0x186000xx` als RAM mappen).
+**Stap 3 (2026-11-27): haakpunt gekozen en gebouwd.** Gelezen met T-Head-decodering
+(`llvm-objdump --mattr=…,+xtheadmemidx,+xtheadba,+xtheadcondmov,…`; daarmee verdwijnen
+bijna alle `<unknown>` in de audiocode).
+
+- **Het pad op `0x30044c48`** (vlaggen `0x30104880`/`0x301041b8`) is geen keten. Het
+  neemt 4:1 af naar een 16-bit-ring op `0x400a1fc0`, of speelt een USB-bron af. Het
+  normale pad (beide vlaggen 0) springt naar `0x30044f8e` en roept per brok
+  **`0x30043800(dma_in, dma_out, usb, …)`** aan.
+- **Brokverwerker `0x30043800`** (per 64 frames):
+  1. Ingang **mono**: alleen het linkerkanaal van het DMA-blok.
+     `(x >> 8) · 2⁻²³ · ingangsgain(0x3008ab3c)` gaat als float naar **L `0x301034b8`**
+     en **R `0x301035b8`** (dezelfde waarden).
+  2. `0x4002717e(0x3010412c)`: preset-wissel-mute. Geeft 0 terug als de uitgang stil
+     moet; dan worden de buffers gewist.
+  3. Optioneel **versterker/NAM `0x400733f4`** (alleen als `0x30104879` en het slot
+     `0x30104810 + 0x34·[0x30104878]` aan staan). State `[0x3010487c]` is ~118 KB
+     (NAM-runtime 115.916 B). Werkt ter plekke op L/R.
+  4. **Ketendispatcher `0x30041d7e(state 0x301038b8, inL, inR, outL 0x301036b8,
+     outR 0x301037b8, 64, ctx, res)`**. Hij loopt de 10 slots van het preset af via de
+     **procestabel `0x4008ea9c`**: 12 soorten × (processor, vlaggen), net als in 1.12.
+     Soort 8 = `0x40004afa` = de FX2-familie (`0x40069820`). Hij wisselt buffers af en
+     schrijft in `res`: **`{float *L; float *R (0 = mono); u8 stereo}`**.
+  5. Daarna native: `0x400271a2` (fade), volume `0x3008ab48`→`0x3008ab44`, master
+     `0x3008ab4d`/100. `0x30042ab6` zet om naar int32 in `dma_out`
+     (`x · gain · 0,5 · master`).
+- **Gekozen haakpunt: punt 4 en punt 3** (dus "optie 2": native conversie, volume,
+  cache en DMA blijven).
+  - `0x3004395e` (12 B: `auipc a0 / addi a0 / jal 0x30041d7e`) wordt
+    `auipc ra / jalr nc_hc_dispatch / nop`. Een `jal` reikt niet van ITCM naar de payload.
+  - `0x3004392a` (8 B: `auipc ra / jalr 0x400733f4`) wordt `auipc ra / jalr nc_hc_amp`.
+  - Tijdens de eerste 3 s audio (2250 blokken) en na een CPU-fout roepen beide de
+    **native** functie aan: dan is het stock 1.2. Daarna draait alleen `chain_process`
+    (inL → outL/outR, stereo) en slaat de versterker/NAM over. MIDI-CC's en noten gaan
+    dan altijd naar HARDCORE. SysEx en programmawissel blijven native (regel 1).
+- **Emulatie** (`emulate.py` §6, met `xthead.py` voor de T-Head- en P-instructies): de
+  echte `0x30043800` loopt in Unicorn met een gesimuleerd DMA-blok. Uitkomsten:
+  - 2250 blokken native, en de lege stock-keten geeft het signaal door (fout < 1,2·10⁻⁷
+    op schaal 0,5);
+  - daarna 200 blokken eigen keten, waarbij de versterker 200× is overgeslagen en de
+    909 slaat (piek 0,36);
+  - maximaal 43,7 % van het blok, bij 360 instr/µs;
+  - met een te trage klok latcht de bewaking en neemt de native keten het weer over.
+
+**Nog niet bewezen:** alles op hardware: caches, echte timing, of de NAM-state na lang
+overslaan schoon blijft. De FX2-haak blijft in het pakket, maar draait na de grace niet
+meer (de dispatcher die hem aanriep is vervangen). Het pakket op de installatiepagina
+(`docs/install/hardcore-1.2.json`) is nog niet bijgewerkt: dat is een release, en
+daarover beslist de eigenaar.
 
 Werkwijze voor het lezen: `tools`-scripts staan niet in de repo. Maak ELF-wrappers van
-de segmenten (laadadres als `.text`) en disassembleer met
-`llvm-objdump -d --mattr=+m,+a,+f,+d,+c`. T-Head-instructies verschijnen als `<unknown>`.
-Let op: `jalr`-labels in een seg0-disassembly zijn relatief aan `0x30040000` en lopen
-modulo 2^32 door naar seg3 (`.text+0xffd068e` = `0x4001068e`).
+de segmenten (`.incbin` in een `.S`, linken met `ld.lld -Ttext=<laadadres>`) en
+disassembleer met de `--mattr` hierboven. Wat dan nog `<unknown>` is met opcode `0x77`,
+hoort bij de P-extensie (bv. `ADD64`).
 
 **Open vragen:**
-- Het sampleformaat aan die grens (int32/float, gescheiden kanalen of interleaved).
-- Wat de native keten doet aan invoertrim, noise gate en uitgangsniveau.
+- Ingangsgain `0x3008ab3c` en uitgangsgain `0x3008ab48` komen uit de globale
+  instellingen. Welke waarden de pedal daar zet, is nog niet gemeten.
+- Er is geen aparte noise gate vóór de dispatcher gevonden. Een gate zit dus als slot in
+  de keten en valt met fase A weg.
 
 ## Fase B: eigen scherm en knoppen
 

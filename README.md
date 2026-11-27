@@ -189,6 +189,8 @@ De Mackie op 2× kost nu ~1 550 instructies/sample (EQ-circuit ~710, clippers ~5
 
 De keten zit als **HARDCORE** in het FX2/PITCH-slot (de plek van de Octaver). De rest van de firmware blijft origineel: BLE-MIDI, USB-MIDI, presets en de updater.
 
+**Fase A (in `build.py`, nog niet op de installatiepagina):** na 3 s audio vervangt HARDCORE de héle native effectketen en de versterker/NAM. Ingang → 909 → Sherman → Mackie → uitgang, wat het preset ook is. MIDI-CC's en noten gaan dan altijd naar HARDCORE. Tijdens die eerste 3 s, en na een CPU-fout, draait de stock-keten. Haken, adressen en de emulatie: [`docs/eigen-firmware.md`](docs/eigen-firmware.md).
+
 **Hoe:** de route van [re-nanocore](https://github.com/jcuhnoio/re-nanocore) (MIT) voor hun op hardware geteste 1.2-Octaver.
 - Er komt een reset-shim bij die de payload achter de native BSS kopieert.
 - Vier haken in het PITCH-slot: dispatch, init, reset en shift.

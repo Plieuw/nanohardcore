@@ -112,6 +112,7 @@ typedef struct {
 _Static_assert(sizeof(State) <= RING_BYTES, "vergrote ring te klein");
 
 static State *volatile g_state;
+int nc_hc_fase_a_own(void);
 
 /* 1 = bericht overgenomen (CC, noot aan/uit terwijl HARDCORE het FX2-effect is),
  * 0 = laat de originele firmware het afhandelen (programmawissel, SysEx, klok, ...) */
@@ -121,7 +122,8 @@ int nc_midi_in(uint32_t port, uint32_t status, uint32_t d1, uint32_t d2, uint32_
     uint32_t t = status & 0xf0;
     if (t != 0xb0 && t != 0x90 && t != 0x80) return 0;
     State *s = g_state;
-    if (!s || s->magic != MAGIC || *(volatile uint8_t *)FX2_SUBTYPE_BYTE != 8) return 0;
+    int fx2 = s && s->magic == MAGIC && *(volatile uint8_t *)FX2_SUBTYPE_BYTE == 8;
+    if (!fx2 && !nc_hc_fase_a_own()) return 0;
     uint32_t h = midi_head;
     if (h - midi_tail >= MIDI_Q) { nc_hc_midi_drop++; return 1; }
     MidiEv e = { (uint8_t)status, (uint8_t)(d1 & 0x7f), (uint8_t)(has_d2 ? d2 & 0x7f : 0), 0 };
@@ -296,4 +298,103 @@ __attribute__((naked)) void nc_octave_dispatch(void)
         "1: li t0,0x40069824\n"
         "li t1,0x4000c3a4\n"
         "jr t1\n");
+}
+
+
+/* ==== Fase A: de hele native effectketen vervangen (docs/eigen-firmware.md) ====
+ *
+ * De brokverwerker 0x30043800 (ITCM) zet per 64 frames de mono-ingang om naar float
+ * (L = R, 0x301034b8/0x301035b8), laat de versterker/NAM-trap 0x400733f4 erop los en
+ * roept dan de ketendispatcher 0x30041d7e aan. Die loopt de 10 slots van het preset af
+ * via de procestabel 0x4008ea9c (effecten, cab/IR, tuner-voeding enz.). Na de dispatcher
+ * volgen de native uitgangstrap, volume en de int32-conversie naar DMA: die blijven.
+ *
+ * Twee haken (build.py):
+ *   0x3004395e  auipc a0 / addi a0 / jal 0x30041d7e  ->  auipc ra / jalr nc_hc_dispatch / nop
+ *   0x3004392a  auipc ra / jalr 0x400733f4           ->  auipc ra / jalr nc_hc_amp
+ * Tijdens de opstart-grace (3 s audio) en na een CPU-fout roepen beide exact de
+ * native functie aan: het apparaat gedraagt zich dan als stock 1.2. */
+#define NATIVE_DISPATCH    0x30041d7eu
+#define NATIVE_CHAIN_STATE 0x301038b8u
+#define NATIVE_AMP         0x400733f4u
+#define NATIVE_RATE_WORD   0x30104128u   /* 0 = 48000 (zoals de native code) */
+#define FASE_A_BLOCK       64u
+#define FASE_A_GRACE_BLOCKS ((uint32_t)(CHAIN_GRACE_S * 48000.f) / FASE_A_BLOCK)
+
+typedef struct { float *l, *r; uint8_t stereo; } DispatchOut;
+typedef void (*NativeDispatch)(void *, float *, float *, float *, float *, uint32_t, void *, DispatchOut *);
+typedef void (*NativeAmp)(void *, float *, float *, void *, uint32_t, void *);
+
+static State fase_a;                 /* .bss: zit als nullen in de payload */
+static Guard guard_a;
+/* blokken, native blokken, eigen blokken, laatste reden van terugval
+ * (0 = geen, 1 = grace, 2 = CPU-fout, 3 = ongeldige argumenten), aantal overgeslagen versterkers */
+volatile uint32_t nc_hc_fase_a[5];
+
+int nc_hc_fase_a_own(void)
+{
+    return nc_hc_fase_a[0] >= FASE_A_GRACE_BLOCKS && !nc_octave_fault;
+}
+
+static void fase_a_start(void)
+{
+    uint32_t rate = word(NATIVE_RATE_WORD);
+    State *s = &fase_a;
+    memset(s, 0, sizeof(State));
+    s->rate = rate == 44100u ? 44100.f : 48000.f;
+    chain_init(&s->chain, s->rate);
+    chain_device_controls(&s->chain, CHAIN_DEV_DEFAULTS);   /* zet ook het CPU-plafond */
+    for (unsigned i = 0; i < CHAIN_DEV_CONTROLS; i++) s->controls[i] = CHAIN_DEV_DEFAULTS[i];
+    s->valid = 1;
+    s->chain.grace_left = 0; s->chain.wet_g = 0.f;         /* native grace is al voorbij: 20 ms fade-in */
+    s->magic = MAGIC;
+}
+
+void nc_hc_amp(void *amp, float *l, float *r, void *params, uint32_t type, void *flag)
+{
+    if (nc_hc_fase_a_own()) { nc_hc_fase_a[4]++; return; }   /* versterker/NAM draait niet */
+    ((NativeAmp)NATIVE_AMP)(amp, l, r, params, type, flag);
+}
+
+void nc_hc_dispatch(void *unused, float *in_l, float *in_r, float *out_l, float *out_r,
+                    uint32_t frames, void *ctx, DispatchOut *res)
+{
+    (void)unused;
+    uint32_t k = nc_hc_fase_a[0]++;
+    if (k < FASE_A_GRACE_BLOCKS || nc_octave_fault || !in_l || !out_l || !out_r || !res
+        || frames == 0 || frames > FASE_A_BLOCK) {
+        nc_hc_fase_a[3] = k < FASE_A_GRACE_BLOCKS ? 1 : nc_octave_fault ? 2 : 3;
+        nc_hc_fase_a[1]++;
+        ((NativeDispatch)NATIVE_DISPATCH)((void *)NATIVE_CHAIN_STATE, in_l, in_r, out_l, out_r, frames, ctx, res);
+        return;
+    }
+    State *s = &fase_a;
+    if (s->magic != MAGIC) fase_a_start();
+    nc_hc_fase_a[2]++; nc_hc_fase_a[3] = 0;
+
+    uint32_t overruns = word(AUDIO_OVERRUNS), calls = word(AUDIO_CALLS);
+    if (guard_observe(&guard_a, calls, overruns, word(AUDIO_SUM), word(AUDIO_DEADLINE))) nc_octave_fault = 2;
+
+    uint64_t start = ticks();
+    float block_ticks = TICK_HZ * (float)frames / s->rate;
+    uint32_t soft = (uint32_t)(block_ticks * (NC_BUDGET_PERCENT * .01f));
+    uint32_t hard = hard_limit((uint32_t)(block_ticks * ((NC_BUDGET_PERCENT > 60 ? 60 : NC_BUDGET_PERCENT) * .01f)));
+    midi_drain(s);
+
+    for (uint32_t off = 0; off < frames; off += 32) {
+        uint32_t n = frames - off < 32 ? frames - off : 32;
+        if (nc_octave_fault) {                   /* rest van dit blok: zelfde regel als de FX2-route */
+            bypass_state(s, in_l + off, 0, out_l + off, out_r + off, frames - off, 1);
+            break;
+        }
+        chain_process(&s->chain, in_l + off, out_l + off, out_r + off, n);
+        if (ticks() - start > hard) nc_octave_fault = 1;
+    }
+    res->l = out_l; res->r = out_r; res->stereo = 1;
+
+    uint64_t el = ticks() - start;
+    uint32_t last = el > 0xffffffffull ? 0xffffffffu : (uint32_t)el;
+    nc_hc_stats[0]++; nc_hc_stats[1] += frames; nc_hc_stats[3] = last;
+    if (last > nc_hc_stats[2]) nc_hc_stats[2] = last;
+    if (guard_finish(&guard_a, last, soft, hard)) nc_octave_fault = 1;
 }

@@ -70,6 +70,46 @@ def midi_hook(stock, symbols):
                  description='MIDI (USB+BLE): CC/noten naar HARDCORE als dat het FX2-effect is')]
 
 
+# Fase A (docs/eigen-firmware.md): de native effectketen en de versterker/NAM-trap
+# vervangen. Beide zitten in de ITCM-brokverwerker 0x30043800 (seg0), te ver voor een
+# `jal` naar de payload: daarom auipc+jalr met ra als hulpregister (ra wordt door de
+# originele aanroep toch overschreven).
+FASE_A_DISPATCH = (0x3004395e, '17050c001305a5f5efe08fc1')   # auipc a0 / addi a0,-0xa6 / jal 0x30041d7e
+FASE_A_AMP = (0x3004392a, '97000310e780a0ac')                # auipc ra / jalr -0x536(ra) -> 0x400733f4
+
+
+def far_call(pc, target):
+    """auipc ra,hi ; jalr ra,lo(ra): 8 bytes, bereik +-2 GiB."""
+    delta = (target - pc) & 0xffffffff
+    lo = delta & 0xfff
+    if lo >= 0x800: lo -= 0x1000
+    hi = ((delta - lo) >> 12) & 0xfffff
+    auipc = (hi << 12) | (1 << 7) | 0x17
+    jalr = ((lo & 0xfff) << 20) | (1 << 15) | (0 << 12) | (1 << 7) | 0x67
+    return auipc.to_bytes(4, 'little') + jalr.to_bytes(4, 'little')
+
+
+NOP = (0x13).to_bytes(4, 'little')                              # addi x0,x0,0
+
+
+def fase_a_hooks(stock, symbols):
+    from patch_image import extract_fit
+    seg = next(s for s in extract_fit(stock)['segments'] if s['load_address'] == 0x30040000)
+    out = []
+    for (address, guard), repl, what in (
+            (FASE_A_DISPATCH, far_call(FASE_A_DISPATCH[0], symbols['nc_hc_dispatch']) + NOP,
+             'Fase A: ketendispatcher 0x30041d7e -> nc_hc_dispatch (native tijdens grace/fout)'),
+            (FASE_A_AMP, far_call(FASE_A_AMP[0], symbols['nc_hc_amp']),
+             'Fase A: versterker/NAM 0x400733f4 -> nc_hc_amp (native tijdens grace/fout)')):
+        offset = seg['offset'] + address - 0x30040000
+        if stock[offset:offset + len(guard) // 2] != bytes.fromhex(guard):
+            raise SystemExit('Onverwachte bytes op fase-A-haak %#x' % address)
+        assert len(repl) == len(guard) // 2
+        out.append(dict(address=hex(address), offset=offset, expected_hex=guard,
+                        replacement_hex=repl.hex(), description=what))
+    return out
+
+
 def main():
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument('--backup', required=True, type=Path)
@@ -87,7 +127,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     elf, symbols = build_elf(args.out)
 
-    hooks = octave_120.patches(stock, symbols) + octave_ui_120.patches(stock, symbols) + midi_hook(stock, symbols)
+    hooks = octave_120.patches(stock, symbols) + octave_ui_120.patches(stock, symbols) + midi_hook(stock, symbols) + fase_a_hooks(stock, symbols)
     plan = {'schema_version': 1, 'firmware_version': '1.2', 'elf_sha256': sha(elf), 'patches': hooks}
     image, receipt = package_octave_120.package(stock, elf, plan)
     boot = check_octave_120_boot.check(image, elf)
