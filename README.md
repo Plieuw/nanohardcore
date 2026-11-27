@@ -10,7 +10,7 @@ make test     # regressiepoort: faalt als een gemeten eigenschap uit deze README
 make rv       # RV32IMAFDC-build + instructietelling in Unicorn (clang, ld.lld, pip install unicorn pyelftools)
 ```
 
-Een eigen effectketen voor de Livtra NanoCore (RV32IMAFDC, float32, 44,1 kHz):
+Een eigen effectketen voor de Livtra NanoCore (RV32IMAFDC, float32, 48 kHz op de pedal met firmware 1.2):
 
 ```
 ingang (trigger-puls of drumgeluid) ─► transient-detector ─► TR-909 bassdrum
@@ -169,15 +169,17 @@ Getest (`test/ccmap.c`): elk van de 46 CC's verandert de output aantoonbaar; CC 
 ## Verificatie
 - 909: de rustpitch volgt uit de componenten alleen en komt uit op **~56 Hz**. De sweep start bij ~215 Hz (accent max), het TUNE-bereik is τ 7–29 ms en DECAY loopt tot ~0,9 s (tot −40 dB).
 - Trigger: 24/24 pulsen gedetecteerd. Op de drumloop vuurden alle kicks, snares en toms, plus een deel van de ghost-hats (hangt af van de gevoeligheid).
-- Sherman-modelaliasing (44,1 kHz tegen een 8× oversampled referentie op identieke ingang, met 16× als controle): alles wat alleen in het model zit ligt **≥ 41 dB** onder het maximum (de rest boven 15 kHz bij maximale bleed). Zonder bleed is dat ≥ 52 dB.
+- Sherman-modelaliasing (gemeten op 44,1 kHz; op 48 kHz ligt de aliasing lager. 44,1 kHz tegen een 8× oversampled referentie op identieke ingang, met 16× als controle): alles wat alleen in het model zit ligt **≥ 41 dB** onder het maximum (de rest boven 15 kHz bij maximale bleed). Zonder bleed is dat ≥ 52 dB.
 - Mackie-EQ: de simulatie in C komt op ±0,4 dB tot 12 kHz overeen met een onafhankelijke frequentiedomein-analyse van hetzelfde netwerk (`test/mna.py`). Die analyse geeft: vlak ≈ 0 dB, HI ±15 dB vanaf 8 kHz (+18 dB @ 12 kHz), MID ±13 dB @ 2,5 kHz, LO ±14 dB @ 80 Hz, LO CUT −4 dB @ 80 Hz, −16,5 dB @ 50 Hz. Totale Mackie-respons vlak: ±0,7 dB tot 18 kHz.
 - RISC-V (clang, rv32imafdc/ilp32d, -O2, geëmuleerd met Unicorn): de uitvoer komt overeen met de host-build.
 
-| | instructies/sample | MIPS @ 44,1 kHz |
+Firmware 1.2 draait op **48 kHz**, in blokken van 64 frames (1,33 ms per callback; bron: re-nanocore `firmware-1.2-audio.json`). `make rv` meet daarom op 48 kHz:
+
+| | instructies/sample (gem. / zwaarste blok) | MIPS @ 48 kHz (gem. / zwaarste blok) |
 |---|---|---|
-| standaard | ~3 120 | ~138 |
-| sync 1.5, lage klokken + bleed | ~2 570 | ~113 |
-| worst case (beide cutoffs maximaal) | ~6 600 | ~291 |
+| standaard | ~2 660 / ~3 170 | ~128 / ~152 |
+| sync 1.5, lage klokken + bleed | ~2 130 / ~2 540 | ~102 / ~122 |
+| worst case (beide cutoffs maximaal) | ~5 850 / ~6 360 | ~281 / ~305 |
 
 De Mackie op 2× kost nu ~1 550 instructies/sample (EQ-circuit ~710, clippers ~510, halfband ~330). Code: 21 KB, state: 5,6 KB.
 

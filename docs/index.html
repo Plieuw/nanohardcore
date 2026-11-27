@@ -41,7 +41,7 @@
 <main>
 <h1>nano<span>hardcore</span></h1>
 <p><a href="install/"><b>Installeren op je NanoCore (firmware 1.2, experimenteel) →</b></a> · <a href="backup/">firmware-backup (alleen lezen)</a></p>
-<p class="lead">Eigen effectketen voor de Livtra NanoCore (RISC-V, float32, 44,1 kHz): een audio-getriggerde
+<p class="lead">Eigen effectketen voor de Livtra NanoCore (RISC-V, float32, 48 kHz op firmware 1.2): een audio-getriggerde
 TR-909-bassdrum, een Sherman Filterbank-achtig dubbel switched-capacitor-filter en een Mackie 1202-VLZ PRO-channelstrip.
 Waar een schema bestaat, is het op componentniveau gemodelleerd en tegen metingen gecontroleerd.</p>
 
@@ -129,7 +129,7 @@ GAIN-trap U40A (R565/R605/R570/R555), pan en mute, alles 2× oversampled. De EQ-
 <h2>Status</h2>
 <ul>
   <li>Compileert voor RV32IMAFDC/ilp32d (de ISA van de NanoCore). De uitvoer onder emulatie komt overeen met de host-build.</li>
-  <li>CPU: ~138 MIPS standaard, ~291 MIPS in het zwaarste geval; 21 KB code, 5,6 KB state.</li>
+  <li>CPU op 48 kHz: ~128 MIPS standaard (zwaarste blok ~152), ~281 MIPS in het zwaarste geval (zwaarste blok ~305); 21 KB code, 5,6 KB state.</li>
   <li><b>Nog niet op de pedal.</b> Het bewezen patch-slot is 1 392 bytes; deze keten heeft een grotere code-plek nodig (FIT-segment uitbreiden) en een eigen state-allocatie. Zie <a href="https://github.com/jcuhnoio/re-nanocore">re-nanocore</a>.</li>
 </ul>
 
