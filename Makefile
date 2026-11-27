@@ -5,7 +5,7 @@ DSP      = dsp/bd909.c dsp/sherman.c dsp/mackie.c dsp/mkcirc.c dsp/chain.c
 RVFLAGS  = --target=riscv32-unknown-elf -march=rv32imafdc -mabi=ilp32d -O2 -ffreestanding \
            -fno-builtin -nostdlib -msmall-data-limit=0 -fno-pic
 
-.PHONY: all render test rv clean
+.PHONY: all render test rv ui clean
 
 all: render
 
@@ -16,6 +16,11 @@ build:
 render: build
 	$(CC) $(CFLAGS) -o build/render host/render.c $(DSP) -lm
 	./build/render out
+
+# vector UI frames (boot screen) -> out/vec/*.ppm, every 40 ms
+ui: build
+	$(CC) $(CFLAGS) -o build/vecshot host/vecshot.c ui/vec.c
+	mkdir -p out/vec && ./build/vecshot out/vec $$(seq 0 40 3600)
 
 # regression gate: builds the measurement programs and fails when a documented
 # property (909 pitch track, Mackie EQ, Sherman resonance/aliasing, MIDI map) drifts

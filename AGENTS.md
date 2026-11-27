@@ -15,8 +15,9 @@ ontwerp en `docs/` voor de Pages-site.
 - **Bewijs met een meting.** Een PR die het geluid verandert, laat zien wat er gemeten is (een tabel in de PR-tekst, en waar zinnig een nieuwe check in `test/check.py`). Vertrouw niet op het spectrogram alleen: kleurschalen verzadigen.
 - **CPU telt.** Draai `make rv` en zet de MIPS-regels in de PR. Elke instructie per sample telt mee voor de 48 kHz-callback op de pedal (firmware 1.2: 64 frames per blok, 1,33 ms).
 
-## Codeconventies (`dsp/`)
-- Freestanding C99 voor RV32IMAFDC/ilp32d: **geen libm, geen malloc, geen schrijfbare statics**. Wiskunde staat in `mathx.h`, alle state zit in de structs.
+## Codeconventies (`dsp/` en `ui/`)
+- **De UI is volledig vector** (wens van de eigenaar): alles op het scherm bestaat uit lijnsegmenten via `ui/vec.c` (`vec_line`, het streepfont, `vec_text3d`). Geen bitmaps, geen bitmapfont, geen beeldbestanden in de firmware.
+- Freestanding C99 voor RV32IMAFDC/ilp32d (ook `ui/`): **geen libm, geen malloc, geen schrijfbare statics**. Wiskunde staat in `mathx.h`, alle state zit in de structs.
 - Float32 overal. Dure dingen (pow/exp, matrixinversie) alleen bij een knopwijziging (`*_update`), niet per sample.
 - **Componentwaarden uit het schema** krijgen hun referentie (`R59`, `C14`, `U40A` …) in de code. **Waarden die niet uit een schema komen** (fits op metingen, gedrag uit handleidingen) heten `CAL_*` of hebben een `CAL`-commentaar met de bron.
 - Niet-lineariteiten in de Sherman worden op de klokmomenten berekend (net als de hardware-sampler). Discontinuïteiten krijgen polyBLEP. De Mackie draait 2× oversampled met ADAA en een compensatie-FIR.
