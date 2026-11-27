@@ -30,7 +30,8 @@ def run(*cmd):
 
 def build_elf(out):
     objs = []
-    for src in DSP + ['firmware/nanocore-1.2/adapter.c', 'firmware/nanocore-1.2/ui.c']:
+    for src in DSP + ['firmware/nanocore-1.2/adapter.c', 'firmware/nanocore-1.2/ui.c',
+                      'firmware/nanocore-1.2/screen.c', 'ui/vec.c', 'ui/hcui.c']:
         o = out / (Path(src).stem + '.o'); objs.append(str(o))
         run('clang', *FLAGS, '-c', str(ROOT / src), '-o', str(o))
     for asm in ('device_ui_120.S', 'midi_gate.S'):
@@ -110,6 +111,35 @@ def fase_a_hooks(stock, symbols):
     return out
 
 
+# Fase B: eigen scherm en knoppen. Beide haken zijn een `jal ra` in seg3 (binnen het
+# bereik van +-1 MiB tot de payload): alleen het doel verandert.
+FASE_B_UI = (0x40017ab2, 'ef707320')          # jal 0x4004f4b8 (lv_timer_handler) in de LVGL-taak
+FASE_B_ENC = (0x40018004, 'eff0fff6')         # jal 0x40017f72 (knoppendispatcher) in enc_poll
+
+
+def jal_ra(pc, target):
+    off = target - pc
+    if not -(1 << 20) <= off < (1 << 20) or off & 1: raise SystemExit('jal buiten bereik: %#x -> %#x' % (pc, target))
+    o = off & 0x1fffff
+    insn = (((o >> 20) & 1) << 31) | (((o >> 1) & 0x3ff) << 21) | (((o >> 11) & 1) << 20) | (((o >> 12) & 0xff) << 12) | (1 << 7) | 0x6f
+    return insn.to_bytes(4, 'little')
+
+
+def fase_b_hooks(stock, symbols):
+    from patch_image import extract_fit
+    seg = next(s for s in extract_fit(stock)['segments'] if s['load_address'] == 0x40000000)
+    out = []
+    for (address, guard), sym, what in (
+            (FASE_B_UI, 'nc_hc_ui_tick', 'Fase B: lv_timer_handler -> nc_hc_ui_tick (native tijdens grace/fout)'),
+            (FASE_B_ENC, 'nc_hc_enc_dispatch', 'Fase B: knoppendispatcher -> nc_hc_enc_dispatch (native zolang de UI niet over is)')):
+        offset = seg['offset'] + address - 0x40000000
+        if stock[offset:offset + 4] != bytes.fromhex(guard):
+            raise SystemExit('Onverwachte bytes op fase-B-haak %#x' % address)
+        out.append(dict(address=hex(address), offset=offset, expected_hex=guard,
+                        replacement_hex=jal_ra(address, symbols[sym]).hex(), description=what))
+    return out
+
+
 def main():
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument('--backup', required=True, type=Path)
@@ -127,7 +157,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     elf, symbols = build_elf(args.out)
 
-    hooks = octave_120.patches(stock, symbols) + octave_ui_120.patches(stock, symbols) + midi_hook(stock, symbols) + fase_a_hooks(stock, symbols)
+    hooks = octave_120.patches(stock, symbols) + octave_ui_120.patches(stock, symbols) + midi_hook(stock, symbols) + fase_a_hooks(stock, symbols) + fase_b_hooks(stock, symbols)
     plan = {'schema_version': 1, 'firmware_version': '1.2', 'elf_sha256': sha(elf), 'patches': hooks}
     image, receipt = package_octave_120.package(stock, elf, plan)
     boot = check_octave_120_boot.check(image, elf)

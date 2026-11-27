@@ -18,8 +18,10 @@ static float smooth(float x) { x = vclamp(x, 0.f, 1.f); return x * x * (3.f - 2.
 
 void vec_clear(VecFb *fb)
 {
-    for (int y = 0; y < fb->h; y++)
-        for (int x = 0; x < fb->w; x++) fb->px[y * fb->stride + x] = 0;
+    for (int y = 0; y < fb->h; y++) {
+        if (fb->bpp == 32) { uint32_t *r = (uint32_t *)fb->px + y * fb->stride; for (int x = 0; x < fb->w; x++) r[x] = 0xff000000u; }
+        else { uint16_t *r = (uint16_t *)fb->px + y * fb->stride; for (int x = 0; x < fb->w; x++) r[x] = 0; }
+    }
 }
 
 /* ---- the beam ----
@@ -38,17 +40,26 @@ static float beam(float d)
 static void add_light(VecFb *fb, int x, int y, VecColor c, float w)
 {
     if (x < 0 || y < 0 || x >= fb->w || y >= fb->h || w <= 0.f) return;
-    uint16_t *p = &fb->px[y * fb->stride + x];
-    unsigned v = *p;
-    float r = (float)((v >> 11) & 31) * (255.f / 31.f);
-    float g = (float)((v >> 5) & 63) * (255.f / 63.f);
-    float b = (float)(v & 31) * (255.f / 31.f);
+    float r, g, b;
+    uint32_t *p32 = 0; uint16_t *p16 = 0;
+    if (fb->bpp == 32) {
+        p32 = (uint32_t *)fb->px + y * fb->stride + x; uint32_t v = *p32;
+        r = (float)((v >> 16) & 255); g = (float)((v >> 8) & 255); b = (float)(v & 255);
+    } else {
+        p16 = (uint16_t *)fb->px + y * fb->stride + x; unsigned v = *p16;
+        r = (float)((v >> 11) & 31) * (255.f / 31.f);
+        g = (float)((v >> 5) & 63) * (255.f / 63.f);
+        b = (float)(v & 31) * (255.f / 31.f);
+    }
     float hot = w > 0.8f ? (w - 0.8f) * 160.f : 0.f;     /* overdriven phosphor blooms white */
-    r += c.r * w + hot; g += c.g * w + hot; b += c.b * w + hot;
-    unsigned R = (unsigned)(vclamp(r, 0.f, 255.f) * (31.f / 255.f) + .5f);
-    unsigned G = (unsigned)(vclamp(g, 0.f, 255.f) * (63.f / 255.f) + .5f);
-    unsigned B = (unsigned)(vclamp(b, 0.f, 255.f) * (31.f / 255.f) + .5f);
-    *p = (uint16_t)((R << 11) | (G << 5) | B);
+    r = vclamp(r + c.r * w + hot, 0.f, 255.f);
+    g = vclamp(g + c.g * w + hot, 0.f, 255.f);
+    b = vclamp(b + c.b * w + hot, 0.f, 255.f);
+    if (p32) { *p32 = 0xff000000u | ((uint32_t)(r + .5f) << 16) | ((uint32_t)(g + .5f) << 8) | (uint32_t)(b + .5f); return; }
+    unsigned R = (unsigned)(r * (31.f / 255.f) + .5f);
+    unsigned G = (unsigned)(g * (63.f / 255.f) + .5f);
+    unsigned B = (unsigned)(b * (31.f / 255.f) + .5f);
+    *p16 = (uint16_t)((R << 11) | (G << 5) | B);
 }
 
 void vec_line(VecFb *fb, float x0, float y0, float x1, float y1, VecColor c, float intensity)
@@ -59,7 +70,7 @@ void vec_line(VecFb *fb, float x0, float y0, float x1, float y1, VecColor c, flo
     float a0 = steep ? y0 : x0, a1 = steep ? y1 : x1;
     if (a0 > a1) { float t = a0; a0 = a1; a1 = t; }
     int m0 = vfloor(a0 - BEAM_REACH), m1 = vfloor(a1 + BEAM_REACH) + 1;
-    int lim = steep ? fb->h : fb->w;
+    int lim = steep ? fb->h : fb->w;  /* rows/columns that exist */
     if (m0 < 0) m0 = 0;
     if (m1 > lim - 1) m1 = lim - 1;
     for (int m = m0; m <= m1; m++) {
@@ -119,7 +130,7 @@ static const char *const GLYPHS[64] = {
     /* 'J' */ "40 46 06 04",         /* 'K' */ "00 06|40 03 46",
     /* 'L' */ "00 06 46",            /* 'M' */ "06 00 23 40 46",
     /* 'N' */ "06 00 46 40",         /* 'O' */ "00 40 46 06 00",
-    /* 'P' */ "06 00 40 43 03",      /* 'Q' */ "00 40 44 26 06 00|24 46",
+    /* 'P' */ "06 00 40 43 03",      /* 'Q' */ "00 40 46 06 00|23 47",
     /* 'R' */ "06 00 40 43 03|13 46", /* 'S' */ "40 00 03 43 46 06",
     /* 'T' */ "00 40|20 26",         /* 'U' */ "00 06 46 40",
     /* 'V' */ "00 26 40",            /* 'W' */ "00 06 23 46 40",
@@ -243,7 +254,7 @@ static float u01(uint32_t h) { return (float)(h >> 8) * (1.f / 16777216.f); }
  * (warp), then settles to a slow drift. Position is a pure function of t. */
 static void stars(VecFb *fb, float t)
 {
-    const float cx = VEC_W * .5f, cy = VEC_H * .46f;
+    const float cx = fb->w * .5f, cy = fb->h * .46f, k = (float)(fb->w < fb->h ? fb->w : fb->h) / 240.f;
     /* travelled distance: slow drift + a warp burst that ends around 1.1 s */
     float S = 0.00006f * t + 1.6f * smooth(t / 1100.f);
     float w = vclamp(t / 1100.f, 0.f, 1.f);
@@ -259,7 +270,7 @@ static void stars(VecFb *fb, float t)
         ph -= (float)vfloor(ph);
         float z = 1.f - ph;                               /* 1 far ... 0 at the glass */
         float z2 = z + trail; if (z2 > 1.f) z2 = 1.f;
-        float r1 = 16.f / (z + 0.05f), r2 = 16.f / (z2 + 0.05f);
+        float r1 = 16.f * k / (z + 0.05f), r2 = 16.f * k / (z2 + 0.05f);
         /* far stars fade in (no bright knot in the centre), near ones are brightest */
         float I = smooth((1.f - z) / 0.45f) * (0.3f + 0.7f * u01(hash(h + 7u)));
         vec_line(fb, cx + ux * r2, cy + uy * r2 * .8f, cx + ux * r1, cy + uy * r1 * .8f, STAR, I);
@@ -268,28 +279,32 @@ static void stars(VecFb *fb, float t)
 
 void vec_boot(VecFb *fb, uint32_t t_ms)
 {
-    float t = (float)t_ms;
+    float t = (float)t_ms, W = (float)fb->w, H = (float)fb->h;
     vec_clear(fb);
     stars(fb, t);
 
-    /* title: extruded, slanted, built by the beam from 0.45 s to 1.75 s */
-    const float th = 24.f, slant = .2f, depth_x = 2.5f, depth_y = -3.f;
+    /* title: extruded, slanted, built by the beam from 0.45 s to 1.75 s; sized to the
+     * screen width (24 px on 320, smaller on a portrait panel) */
+    const float slant = .2f, depth_x = 2.5f, depth_y = -3.f;
+    float th = 24.f, fit = (W - 30.f) / (vec_text_width(TITLE, 1.f) + slant);
+    if (th > fit) th = fit;
     float tw = vec_text_width(TITLE, th) + slant * th;
-    float tx = (VEC_W - tw) * .5f, ty = 84.f;
+    float cy = H * .5f;
+    float tx = (W - tw) * .5f, ty = cy - 36.f * th / 24.f;
     VecBudget b = (float)text3d_segments(TITLE) * smooth((t - 450.f) / 1300.f) * 1.0001f;
     if (t >= 450.f)
         vec_text3d(fb, tx, ty, th, slant, depth_x, depth_y, TITLE, ORANGE, EMBER, 1.f, &b);
 
     /* two horizon rules that open out from the centre (1.6 s .. 2.0 s) */
-    float o = smooth((t - 1600.f) / 400.f) * 132.f;
+    float o = smooth((t - 1600.f) / 400.f) * (W * .5f - 28.f);
     if (o > 0.f) {
-        vec_line(fb, VEC_W * .5f - o, 122.f, VEC_W * .5f + o, 122.f, TEAL, .8f);
-        vec_line(fb, VEC_W * .5f - o * .62f, 126.f, VEC_W * .5f + o * .62f, 126.f, TEAL, .45f);
+        vec_line(fb, W * .5f - o, cy + 2.f, W * .5f + o, cy + 2.f, TEAL, .8f);
+        vec_line(fb, W * .5f - o * .62f, cy + 6.f, W * .5f + o * .62f, cy + 6.f, TEAL, .45f);
     }
 
     /* subtitle, drawn on from 1.9 s to 2.6 s */
     const float sh = 10.f;
     float sw = vec_text_width(SUB, sh);
     VecBudget sb = (float)vec_text_segments(SUB) * smooth((t - 1900.f) / 700.f) * 1.0001f;
-    if (t >= 1900.f) vec_text(fb, (VEC_W - sw) * .5f, 136.f, sh, 0.f, SUB, TEAL, 1.f, &sb);
+    if (t >= 1900.f) vec_text(fb, (W - sw) * .5f, cy + 16.f, sh, 0.f, SUB, TEAL, 1.f, &sb);
 }

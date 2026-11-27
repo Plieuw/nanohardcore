@@ -16,6 +16,7 @@ ontwerp en `docs/` voor de Pages-site.
 - **CPU telt.** Draai `make rv` en zet de MIPS-regels in de PR. Elke instructie per sample telt mee voor de 48 kHz-callback op de pedal (firmware 1.2: 64 frames per blok, 1,33 ms).
 
 ## Codeconventies (`dsp/` en `ui/`)
+- **UI-blokken:** `ui/vec.c` (engine, font, opstartscherm) en `ui/hcui.c` (schermen, gebaren, parametertabel). `firmware/nanocore-1.2/screen.c` koppelt ze aan de pedal. Voeg je een CC toe, zet hem dan ook in de parametertabel van `hcui.c`.
 - **De UI is volledig vector** (wens van de eigenaar): alles op het scherm bestaat uit lijnsegmenten via `ui/vec.c` (`vec_line`, het streepfont, `vec_text3d`). Geen bitmaps, geen bitmapfont, geen beeldbestanden in de firmware.
 - Freestanding C99 voor RV32IMAFDC/ilp32d (ook `ui/`): **geen libm, geen malloc, geen schrijfbare statics**. Wiskunde staat in `mathx.h`, alle state zit in de structs.
 - Float32 overal. Dure dingen (pow/exp, matrixinversie) alleen bij een knopwijziging (`*_update`), niet per sample.

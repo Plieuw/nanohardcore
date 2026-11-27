@@ -327,6 +327,39 @@ typedef void (*NativeAmp)(void *, float *, float *, void *, uint32_t, void *);
 
 static State fase_a;                 /* .bss: zit als nullen in de payload */
 static Guard guard_a;
+
+/* ---- fase B: de eigen UI (screen.c) stuurt de keten met CC's via een eigen ring
+ * (één schrijver: de LVGL-taak; één lezer: de audiotaak) en zet bypass ---- */
+static MidiEv ui_q[MIDI_Q];
+volatile uint32_t nc_hc_ui_head, nc_hc_ui_tail, nc_hc_ui_drop;
+volatile uint32_t nc_hc_bypass;           /* 1 = hele keten droog (5 ms ramp) */
+static float bypass_g;                    /* 0 = keten, 1 = droog */
+
+void nc_hc_ui_cc(uint8_t cc, uint8_t value)
+{
+    uint32_t h = nc_hc_ui_head;
+    if (h - nc_hc_ui_tail >= MIDI_Q) { nc_hc_ui_drop++; return; }
+    MidiEv e = { 0xB0, (uint8_t)(cc & 0x7f), (uint8_t)(value & 0x7f), 0 };
+    ui_q[h % MIDI_Q] = e;
+    __asm__ volatile("" ::: "memory");
+    nc_hc_ui_head = h + 1;
+}
+
+static void ui_drain(State *s)
+{
+    uint32_t t = nc_hc_ui_tail, h = nc_hc_ui_head;
+    __asm__ volatile("" ::: "memory");
+    for (unsigned n = 0; t != h && n < MIDI_Q; t++, n++) {
+        MidiEv e = ui_q[t % MIDI_Q];
+        chain_midi(&s->chain, e.st, e.d1, e.d2);
+    }
+    nc_hc_ui_tail = t;
+}
+
+const Chain *nc_hc_chain(void)
+{
+    return fase_a.magic == MAGIC ? &fase_a.chain : 0;
+}
 /* blokken, native blokken, eigen blokken, laatste reden van terugval
  * (0 = geen, 1 = grace, 2 = CPU-fout, 3 = ongeldige argumenten), aantal overgeslagen versterkers */
 volatile uint32_t nc_hc_fase_a[5];
@@ -380,6 +413,7 @@ void nc_hc_dispatch(void *unused, float *in_l, float *in_r, float *out_l, float 
     uint32_t soft = (uint32_t)(block_ticks * (NC_BUDGET_PERCENT * .01f));
     uint32_t hard = hard_limit((uint32_t)(block_ticks * ((NC_BUDGET_PERCENT > 60 ? 60 : NC_BUDGET_PERCENT) * .01f)));
     midi_drain(s);
+    ui_drain(s);
 
     for (uint32_t off = 0; off < frames; off += 32) {
         uint32_t n = frames - off < 32 ? frames - off : 32;
@@ -389,6 +423,19 @@ void nc_hc_dispatch(void *unused, float *in_l, float *in_r, float *out_l, float 
         }
         chain_process(&s->chain, in_l + off, out_l + off, out_r + off, n);
         if (ticks() - start > hard) nc_octave_fault = 1;
+    }
+    /* bypass (A+B op de pedal): droog = de ingang, met een ramp van 5 ms */
+    float target = nc_hc_bypass ? 1.f : 0.f;
+    if (target != bypass_g || target != 0.f) {
+        float step = 1.f / (0.005f * s->rate);
+        for (uint32_t i = 0; i < frames; i++) {
+            bypass_g += bypass_g < target ? step : bypass_g > target ? -step : 0.f;
+            if (bypass_g < 0.f) bypass_g = 0.f;
+            if (bypass_g > 1.f) bypass_g = 1.f;
+            float d = in_l[i];
+            out_l[i] += (d - out_l[i]) * bypass_g;
+            out_r[i] += (d - out_r[i]) * bypass_g;
+        }
     }
     res->l = out_l; res->r = out_r; res->stereo = 1;
 

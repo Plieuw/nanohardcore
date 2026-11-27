@@ -7,7 +7,7 @@
 int main(int argc, char **argv)
 {
     static uint16_t px[VEC_W * VEC_H];
-    VecFb fb = { px, VEC_W, VEC_H, VEC_W };
+    VecFb fb = { px, VEC_W, VEC_H, VEC_W, 16 };
     for (int a = 2; a < argc; a++) {
         unsigned t = (unsigned)atoi(argv[a]);
         vec_boot(&fb, t);
