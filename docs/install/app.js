@@ -8,8 +8,29 @@ import {get, put, recoveryTarget} from './storage.js';
 
 const $ = id => document.getElementById(id);
 let mode = 'install', busy = false, critical = false, imported = null, backupURL;
-const manifestPromise = fetch('./hardcore-1.2.json').then(r => { if (!r.ok) throw Error('Kon de patch niet laden; ververs de pagina.'); return r.json(); });
-manifestPromise.catch(() => {});
+const load = f => fetch('./' + f).then(r => { if (!r.ok) throw Error('Kon de patch niet laden; ververs de pagina.'); return r.json(); });
+const manifestPromise = load('hardcore-1.2.json');
+// eerdere uitgaven: worden herkend en via de opgeslagen stock-backup geüpgraded of teruggezet
+const OLDER = ['hardcore-1.2-r1.json'];
+const olderPromise = Promise.all(OLDER.map(load));
+manifestPromise.catch(() => {}); olderPromise.catch(() => {});
+
+// identificeer: stock of huidige uitgave (m), of een eerdere uitgave (old)
+async function identify(current, m) {
+  try { return {...(await validateImage(current, m)), manifest: m}; } catch {}
+  for (const old of await olderPromise) {
+    try { const st = await validateImage(current, old); if (st.kind === 'installed') return {kind: 'older', manifest: old}; } catch {}
+  }
+  throw Error('Onbekende firmware: alleen de originele 1.2 of een HARDCORE-uitgave wordt geaccepteerd. Er is niets geschreven.');
+}
+// stock-image reconstrueren uit de backup, gecontroleerd tegen wat er nu op staat
+async function stockFrom(current, manifest) {
+  const backup = imported || (await get('original'))?.bytes;
+  if (!backup) throw Error('Hiervoor is je originele backup nodig: klik "Backupbestand gebruiken" en kies nanocore-1.2-stock-backup.bin.');
+  const stock = await prepareRestore(current, backup, manifest);
+  const t = manifest.timestamp; stock.set(current.subarray(t.offset, t.offset + t.size), t.offset);
+  return stock;
+}
 const supported = !!navigator.usb && !!navigator.requestMIDIAccess && isSecureContext;
 
 const log = t => { $('log').textContent += t + '\n'; };
@@ -48,7 +69,7 @@ async function begin(next) {
   if (!supported) throw Error('Gebruik desktop Chrome of Edge (ook op een Chromebook).');
   if (!$('audio').checked) throw Error('Haal eerst koptelefoon en audiokabels eruit en sluit ToneCommand.');
   mode = next;
-  if (mode === 'restore' && !imported && !(await get('original'))) throw Error('Kies eerst je backupbestand (nanocore-1.2-stock-backup.bin).');
+  if (mode === 'restore' && !imported && !(await get('original'))) throw Error('Kies eerst je backupbestand: klik "Backupbestand gebruiken" (nanocore-1.2-stock-backup.bin).');
   const boot = (await navigator.usb.getDevices()).filter(d => d.vendorId === USB_FILTER.vendorId && d.productId === USB_FILTER.productId);
   if (boot.length === 1) return upload(boot[0]);
   status('Verbinden met NanoCore', 'Sta MIDI-toegang toe, inclusief system-exclusive.');
@@ -83,19 +104,21 @@ async function upload(device) {
       if (!pending?.active) throw Error('Geen onderbroken upload bewaard in deze browser.');
       target = recoveryTarget(current, pending);
     } else {
-      const state = await validateImage(current, m);          // gooit bij alles behalve exact stock 1.2 / HARDCORE
-      log('Gevonden: ' + (state.kind === 'stock' ? 'stock 1.2' : 'nanohardcore op 1.2'));
+      const state = await identify(current, m);
+      log('Gevonden: ' + ({stock: 'stock 1.2', installed: 'HARDCORE (nieuwste)', older: 'HARDCORE (eerdere versie)'})[state.kind]);
       if (mode === 'install') {
-        if (state.kind === 'installed') { status('Al geïnstalleerd', 'HARDCORE staat al op deze pedal. Er is niets geschreven.'); return; }
-        status('Backup bewaren…');
-        const backup = {bytes: current, sha256: await sha256(current), version: '1.2'};
-        await put('original', backup); linkBackup(current);
-        target = await install(current, m);
+        if (state.kind === 'installed') { status('Al geïnstalleerd', 'De nieuwste HARDCORE staat al op deze pedal. Er is niets geschreven.'); return; }
+        if (state.kind === 'stock') {
+          status('Backup bewaren…');
+          const backup = {bytes: current, sha256: await sha256(current), version: '1.2'};
+          await put('original', backup); linkBackup(current);
+          target = await install(current, m);
+        } else {
+          target = await install(await stockFrom(current, state.manifest), m);   // upgrade
+        }
       } else {
-        const backup = imported || (await get('original'))?.bytes;
-        if (!backup) throw Error('Geen backup gevonden. Kies je backupbestand.');
         if (state.kind === 'stock') { status('Al origineel', 'Deze pedal draait de originele 1.2. Er is niets geschreven.'); return; }
-        target = await prepareRestore(current, backup, m);
+        target = await stockFrom(current, state.manifest);
       }
     }
     const pending = {active: true, current, target, mode, created: new Date().toISOString()};
@@ -127,7 +150,8 @@ $('importBackup').onclick = () => $('backupFile').click();
 $('backupFile').onchange = () => run(async () => {
   const f = $('backupFile').files[0]; if (!f) return;
   const bytes = new Uint8Array(await f.arrayBuffer());
-  if ((await validateImage(bytes, await manifestPromise)).kind !== 'stock') throw Error('Dit is geen originele 1.2-backup.');
+  let kind; try { kind = (await validateImage(bytes, await manifestPromise)).kind; } catch {}
+  if (kind !== 'stock') throw Error('Dit is geen originele 1.2-backup.');
   imported = bytes; status('Backupbestand klaar', 'Klik "Origineel terugzetten".');
 });
 if (!supported) status('Niet ondersteund', 'Gebruik desktop Chrome of Edge (WebUSB + Web MIDI).');
