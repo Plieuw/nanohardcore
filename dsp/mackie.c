@@ -138,10 +138,15 @@ void mackie_update(Mackie *m)
     if (inst < 1.0001f) inst = 1.0001f;
     m->rg = 2.f * R641 / (inst - 1.f);
     /* EQ pots: centre detent = 0.5; knob +1 = boost = wiper towards the input side */
-    pot(&m->eq, 1, 50e3f, 0.5f - 0.5f * m->k_hi);
-    pot(&m->eq, 7, 50e3f, 0.5f - 0.5f * m->k_mid);
-    pot(&m->eq, 12, 50e3f, 0.5f - 0.5f * m->k_lo);
-    mc_build(&m->eq);
+    /* het EQ-netwerk alleen opnieuw oplossen als een EQ-pot echt verandert:
+     * mc_build is een volledige eliminatie, te zwaar voor elke knopbeweging */
+    if (!m->eq_built || m->k_hi != m->eq_hi || m->k_mid != m->eq_mid || m->k_lo != m->eq_lo) {
+        pot(&m->eq, 1, 50e3f, 0.5f - 0.5f * m->k_hi);
+        pot(&m->eq, 7, 50e3f, 0.5f - 0.5f * m->k_mid);
+        pot(&m->eq, 12, 50e3f, 0.5f - 0.5f * m->k_lo);
+        mc_build(&m->eq);
+        m->eq_hi = m->k_hi; m->eq_mid = m->k_mid; m->eq_lo = m->k_lo; m->eq_built = 1;
+    }
     m->g40 = g40_of(gain_taper(m, m->k_gain));
     float km = mx_clamp(m->k_main, 0.f, 1.f), km2 = km * km;
     m->g_main = (km2 * km2) / (0.75f * 0.75f * 0.75f * 0.75f) / g40_of(m->a_unity);

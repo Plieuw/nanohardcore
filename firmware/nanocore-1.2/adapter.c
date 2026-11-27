@@ -1,0 +1,242 @@
+/* adapter.c - nanohardcore in het FX2/PITCH-slot (subtype 8) van NanoCore-firmware 1.2.
+ *
+ * Gebaseerd op re-nanocore firmware/custom-fx/octave/device.cpp en overload_guard.h
+ * (MIT, (c) 2026 jcuhnoio and contributors), met de 1.2-adressen uit hun
+ * tools/custom_fx/octave_120.py. ABI, haakpunten, de vergrote ring van 64 KB en de
+ * CPU-bewaking zijn gelijk aan die van de op hardware geteste 1.2-Octaver; alleen de
+ * DSP is vervangen door chain.c (909 -> Sherman -> Mackie).
+ *
+ * Veiligheid:
+ *  - opstart-grace in chain.c: de eerste 3 s na pitch_init is de keten droog;
+ *  - de CPU-bewaking latcht bypass tot een herstart bij overschrijding van het budget
+ *    (eigen tijd, of overruns van de hele audio-callback), net als bij de Octaver;
+ *  - geen heap, geen libc, geen externe aanroepen behalve de native 64-bit timer.
+ */
+#include <stdint.h>
+#include <stddef.h>
+#include "../../dsp/chain.h"
+
+/* ---- libc-minimum voor door de compiler gegenereerde aanroepen ---- */
+void *memset(void *d, int c, size_t n) { unsigned char *p = d; while (n--) *p++ = (unsigned char)c; return d; }
+void *memcpy(void *d, const void *s, size_t n) { unsigned char *p = d; const unsigned char *q = s; while (n--) *p++ = *q++; return d; }
+
+/* ---- native 1.2-adressen (re-nanocore octave_versions.json, profiel '1.2') ---- */
+#define NATIVE_TICKS      0x4004393cu   /* 64-bit timer, 4 MHz */
+#define AUDIO_SUM         0x3008a9e0u   /* som van callback-ticks */
+#define AUDIO_CALLS       0x3008a9f0u
+#define AUDIO_DEADLINE    0x3008a9fcu
+#define AUDIO_OVERRUNS    0x3008aa00u
+#define FAMILY_ENABLE     8             /* family+8: pointer naar enable-byte */
+#define FAMILY_PITCH      16            /* family+16: native pitch-object (eerste woord = onze state) */
+#define FAMILY_SUBTYPE    0xe48
+#define NATIVE_PITCH_BYTES 0xd98
+#define RING_BYTES        0x10000
+#define TICK_HZ           4000000.f
+
+#ifndef NC_BUDGET_PERCENT
+#define NC_BUDGET_PERCENT 65            /* zachte reservering; harde grens max 60% + 1/8 */
+#endif
+_Static_assert(NC_BUDGET_PERCENT >= 40 && NC_BUDGET_PERCENT <= 65, "ongeldig budget");
+
+static uint64_t ticks(void) { return ((uint64_t (*)(void))NATIVE_TICKS)(); }
+static uint32_t word(uintptr_t a) { return *(volatile uint32_t *)a; }
+
+/* ---- CPU-bewaking (overload_guard.h, naar C) ---- */
+typedef struct { uint64_t bits; unsigned count; } Recent;
+static unsigned recent_push(Recent *r, int miss)
+{
+    r->count -= (unsigned)(r->bits >> 63);
+    r->bits = (r->bits << 1) | (unsigned)(miss != 0);
+    r->count += (unsigned)(miss != 0);
+    return r->count;
+}
+typedef struct {
+    Recent chain, self;
+    uint32_t calls, overruns, sum, last_chain_ticks;
+    uint32_t chain_exc, self_exc, ignored_overruns, gaps;
+    int initialized;
+} Guard;
+
+static unsigned guard_observe(Guard *g, uint32_t now_calls, uint32_t now_overruns,
+                              uint32_t now_sum, uint32_t deadline)
+{
+    unsigned fault = 0;
+    if (g->initialized && (uint32_t)(now_calls - g->calls) == 1) {
+        g->last_chain_ticks = now_sum - g->sum;
+        int late = now_overruns != g->overruns;
+        if (late) g->chain_exc++;
+        unsigned recent = recent_push(&g->chain, late);
+        if ((late && deadline && g->last_chain_ticks > deadline + deadline / 4) || recent >= 3) fault = 2;
+    } else if (!g->initialized || now_calls != g->calls) {
+        if (g->initialized) { g->ignored_overruns += now_overruns - g->overruns; g->gaps++; }
+        g->chain.bits = 0; g->chain.count = 0; g->self.bits = 0; g->self.count = 0;
+        g->last_chain_ticks = 0;
+    }
+    g->calls = now_calls; g->overruns = now_overruns; g->sum = now_sum; g->initialized = 1;
+    return fault;
+}
+static uint32_t hard_limit(uint32_t soft) { return soft + soft / 8; }
+static unsigned guard_finish(Guard *g, uint32_t elapsed, uint32_t soft, uint32_t hard)
+{
+    int late = elapsed > soft;
+    if (late) g->self_exc++;
+    unsigned recent = recent_push(&g->self, late);
+    return elapsed > (hard ? hard : hard_limit(soft)) || recent >= 3 ? 1 : 0;
+}
+
+/* ---- toestand die de UI (ui.c) en een eventuele diagnose kunnen lezen ---- */
+volatile uint32_t nc_octave_fault = 0;          /* 1 = CPU LIMIT, 2 = CHAIN LIMIT; tot herstart */
+volatile uint32_t nc_hc_stats[6];               /* calls, frames, max ticks, last ticks, inits, resets */
+static Guard guard;
+
+#define MAGIC 0x48435231u                       /* "HCR1" */
+typedef struct {
+    uint32_t magic;
+    float    rate;
+    float    controls[CHAIN_DEV_CONTROLS];
+    uint32_t valid;
+    Chain    chain;
+} State;
+_Static_assert(sizeof(State) <= RING_BYTES, "vergrote ring te klein");
+
+static State *state_for(void *native_pitch)
+{
+    if (!native_pitch) return 0;
+    State *s = *(State **)native_pitch;
+    return s && s->magic == MAGIC ? s : 0;
+}
+
+static float bounded(float v, unsigned i)
+{
+    if (!(v == v) || v > 3.0e38f || v < -3.0e38f) return CHAIN_DEV_DEFAULTS[i];
+    return v < 0.f ? 0.f : v > 1.f ? 1.f : v;
+}
+
+static void controls(State *s, const float *p)
+{
+    float next[CHAIN_DEV_CONTROLS]; int changed = !s->valid;
+    for (unsigned i = 0; i < CHAIN_DEV_CONTROLS; i++) {
+        next[i] = p ? bounded(p[i], i) : CHAIN_DEV_DEFAULTS[i];
+        changed |= next[i] != s->controls[i];
+    }
+    if (!changed) return;
+    chain_device_controls(&s->chain, next);
+    for (unsigned i = 0; i < CHAIN_DEV_CONTROLS; i++) s->controls[i] = next[i];
+    s->valid = 1;
+}
+
+/* DSP opnieuw beginnen (effect gekozen, preset gewisseld): knoppen behouden, een
+ * lopende opstart-grace behouden, anders een korte fade-in */
+static void restart(State *s)
+{
+    int grace = s->chain.grace_left;
+    chain_init(&s->chain, s->rate);
+    s->chain.grace_left = grace > 0 ? grace : 0; s->chain.wet_g = 0.f;
+    s->valid = 0; controls(s, s->controls);
+}
+
+static void bypass(const float *l, const float *r, float *ol, float *or_,
+                   uint32_t frames, uint32_t stereo)
+{
+    for (uint32_t i = 0; i < frames; i++) {
+        float a = l[i], b = r ? r[i] : a;
+        ol[i] = a; if (stereo && or_) or_[i] = b;
+    }
+}
+
+uint32_t nc_hc_state_bytes(void) { return sizeof(State); }
+
+int nc_octave_pitch_init(float rate, void *native_pitch, void *ring, uint32_t count)
+{
+    /* Zelfde contract als de Octaver: beide allocaties zijn door de haakplannen
+     * vergroot tot RING_BYTES; de native aanroep vraagt 2048. */
+    if (!native_pitch || !ring || count != 2048 || ((uintptr_t)ring & 3)) return -1;
+    if (rate != 44100.f && rate != 48000.f) return -1;
+    memset(native_pitch, 0, NATIVE_PITCH_BYTES);
+    State *s = (State *)ring;
+    memset(s, 0, sizeof(State));
+    s->rate = rate;
+    chain_init(&s->chain, rate);                 /* zet de opstart-grace van 3 s */
+    for (unsigned i = 0; i < CHAIN_DEV_CONTROLS; i++) s->controls[i] = CHAIN_DEV_DEFAULTS[i];
+    controls(s, 0);
+    s->magic = MAGIC;                            /* pas geldig na volledige init */
+    nc_hc_stats[4]++;
+    *(State **)native_pitch = s;
+    return 0;
+}
+
+void nc_octave_pitch_reset(void *native_pitch)
+{
+    State *s = state_for(native_pitch);
+    if (s) { restart(s); nc_hc_stats[5]++; }
+}
+
+void nc_octave_pitch_set_shift(float a, float b, float c, void *p)
+{
+    (void)a; (void)b; (void)c; (void)p;          /* native pitch-instelling niet gebruikt */
+}
+
+void nc_octave_process(void *family, const float *left, const float *right,
+                       float *out_left, float *out_right, uint32_t frames,
+                       const float *p, uint32_t subtype, uint32_t stereo, uint8_t *output_mode)
+{
+    if (!left || !out_left || !frames) return;
+    if (output_mode) *output_mode = stereo != 0;
+    unsigned char *bytes = family;
+    uint8_t *enabled = family ? *(uint8_t **)(bytes + FAMILY_ENABLE) : 0;
+    State *s = family ? state_for(bytes + FAMILY_PITCH) : 0;
+    if (subtype != 8 || !enabled || !*enabled || !s) { bypass(left, right, out_left, out_right, frames, stereo); return; }
+
+    uint32_t overruns = word(AUDIO_OVERRUNS), calls = word(AUDIO_CALLS);
+    if (!nc_octave_fault && guard_observe(&guard, calls, overruns, word(AUDIO_SUM), word(AUDIO_DEADLINE)))
+        nc_octave_fault = 2;
+    if (nc_octave_fault) { bypass(left, right, out_left, out_right, frames, stereo); return; }
+
+    uint64_t start = ticks();
+    float block_ticks = TICK_HZ * (float)frames / s->rate;
+    uint32_t soft = (uint32_t)(block_ticks * (NC_BUDGET_PERCENT * .01f));
+    uint32_t hard = hard_limit((uint32_t)(block_ticks * ((NC_BUDGET_PERCENT > 60 ? 60 : NC_BUDGET_PERCENT) * .01f)));
+
+    if (bytes[FAMILY_SUBTYPE] != 8) { restart(s); nc_hc_stats[5]++; }   /* net gekozen */
+    bytes[FAMILY_SUBTYPE] = 8;
+    controls(s, p);
+
+    float mono[32], ol[32], or_[32];
+    for (uint32_t off = 0; off < frames; off += 32) {
+        uint32_t n = frames - off < 32 ? frames - off : 32;
+        for (uint32_t i = 0; i < n; i++) {
+            float l = left[off + i];
+            mono[i] = stereo && right ? .5f * (l + right[off + i]) : l;
+        }
+        chain_process(&s->chain, mono, ol, or_, n);
+        if (ticks() - start > hard) {            /* harde grens: rest droog, latch */
+            nc_octave_fault = 1;
+            bypass(left + off, right ? right + off : 0, out_left + off,
+                   out_right ? out_right + off : 0, frames - off, stereo);
+            break;
+        }
+        for (uint32_t i = 0; i < n; i++) {
+            out_left[off + i] = ol[i];
+            if (stereo && out_right) out_right[off + i] = or_[i];
+        }
+    }
+    uint64_t el = ticks() - start;
+    uint32_t last = el > 0xffffffffull ? 0xffffffffu : (uint32_t)el;
+    nc_hc_stats[0]++; nc_hc_stats[1] += frames; nc_hc_stats[3] = last;
+    if (last > nc_hc_stats[2]) nc_hc_stats[2] = last;
+    if (guard_finish(&guard, last, soft, hard)) nc_octave_fault = 1;
+}
+
+/* Haak op de native FX-dispatch. Geen stackgebruik vóór de keuze: argument 9/10
+ * staan op sp+0/+4. Niet-PITCH speelt de overschreven native proloog exact na
+ * (1.2: __riscv_save_12 met hervatting op 0x40069824). */
+__attribute__((naked)) void nc_octave_dispatch(void)
+{
+    __asm__ volatile(
+        "li t0,8\n"
+        "bne a7,t0,1f\n"
+        "j nc_octave_process\n"
+        "1: li t0,0x40069824\n"
+        "li t1,0x4000c3a4\n"
+        "jr t1\n");
+}

@@ -85,17 +85,34 @@ void mc_build(McCirc *c)
     #undef XP
 }
 
+/* Per orde N volledig uitgerold (constante lusgrenzen), zelfde optelvolgorde als de
+ * generieke lus, dus bit-identieke uitkomst; ~5x minder instructies op RV32. */
+#define MC_TICK_N(N)                                                              \
+static float mc_tick_##N(McCirc *c, float vin)                                    \
+{                                                                                 \
+    float J[N], Jn[N], y = c->SD * vin;                                           \
+    for (int j = 0; j < N; j++) J[j] = c->J[j];                                   \
+    for (int j = 0; j < N; j++) y += c->SC[j] * J[j];                             \
+    for (int k = 0; k < N; k++) {                                                 \
+        const float *a = &c->SA[k * MC_MAXC];                                     \
+        float s = c->SB[k] * vin;                                                 \
+        for (int j = 0; j < N; j++) s += a[j] * J[j];                             \
+        Jn[k] = s;                                                                \
+    }                                                                             \
+    for (int k = 0; k < N; k++) c->J[k] = Jn[k];                                  \
+    return y;                                                                     \
+}
+MC_TICK_N(1) MC_TICK_N(2) MC_TICK_N(3) MC_TICK_N(4)
+MC_TICK_N(5) MC_TICK_N(6) MC_TICK_N(7) MC_TICK_N(8)
+_Static_assert(MC_MAXC == 8, "mc_tick: uitgerolde ordes bijwerken");
+
 float mc_tick(McCirc *c, float vin)
 {
-    const int nc = c->nc;
-    float y = c->SD * vin, Jn[MC_MAXC];
-    for (int j = 0; j < nc; j++) y += c->SC[j] * c->J[j];
-    for (int k = 0; k < nc; k++) {
-        const float *a = &c->SA[k * MC_MAXC];
-        float s = c->SB[k] * vin;
-        for (int j = 0; j < nc; j++) s += a[j] * c->J[j];
-        Jn[k] = s;
+    switch (c->nc) {
+    case 1: return mc_tick_1(c, vin); case 2: return mc_tick_2(c, vin);
+    case 3: return mc_tick_3(c, vin); case 4: return mc_tick_4(c, vin);
+    case 5: return mc_tick_5(c, vin); case 6: return mc_tick_6(c, vin);
+    case 7: return mc_tick_7(c, vin); case 8: return mc_tick_8(c, vin);
+    default: return c->SD * vin;
     }
-    for (int k = 0; k < nc; k++) c->J[k] = Jn[k];
-    return y;
 }

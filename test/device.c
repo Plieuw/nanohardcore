@@ -29,11 +29,13 @@ int main(void){
   printf("audio_mode_sine_out %.3f\n", pk);
   /* 3: device bank: defaults and exact zeros at 0.5 */
   chain_init(&c, FS); chain_device_controls(&c, CHAIN_DEV_DEFAULTS);
-  float p[CHAIN_DEV_CONTROLS]; memcpy(p,CHAIN_DEV_DEFAULTS,sizeof p); p[7]=0.5f; p[10]=0.5f;
+  float p[CHAIN_DEV_CONTROLS]; memcpy(p,CHAIN_DEV_DEFAULTS,sizeof p); p[7]=0.5f;
   chain_device_controls(&c,p);
   printf("dev_env_zero %.9f\n", c.sh.k_env1);
-  printf("dev_mid_zero %.9f\n", c.mk.k_mid);
   p[8]=1.f; chain_device_controls(&c,p); printf("dev_harm_max %d\n", c.sh.harm);
+  volatile float zero=0.f; p[3]=zero/zero; chain_device_controls(&c,p); printf("dev_nan_default %.3f\n", c.sh.k_in);
+  p[3]=CHAIN_DEV_DEFAULTS[3]; p[9]=1.f; chain_device_controls(&c,p); printf("dev_mode_a909 %d\n", c.mode);
+  printf("dev_fmax %.0f\n", c.sh.fmax);
   printf("state_bytes %u\n", (unsigned)sizeof(Chain));
   return 0;
 }

@@ -22,7 +22,7 @@ jobs:
         run: |
           mkdir -p _site
           cp index.html .nojekyll _site/
-          cp -r docs backup _site/
+          cp -r docs backup install _site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
