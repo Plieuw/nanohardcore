@@ -14,7 +14,7 @@ uitgevoerde instructies, en roept dan de gehaakte functies aan met de native ABI
   5. de UI-functies: naam, 11 labels, waardeweergave, defaults.
 Bewijst niets over caches, randapparatuur of echte deadlines.
 """
-import json, struct, sys
+import json, math, struct, sys
 from pathlib import Path
 from unicorn import Uc, UC_ARCH_RISCV, UC_MODE_RISCV32, UC_HOOK_CODE
 from unicorn import riscv_const as r
@@ -37,6 +37,8 @@ u.mem_map(0x30040000, 0x200000); u.mem_map(0x40000000, 0x400000)
 u.reg_write(r.UC_RISCV_REG_MSTATUS, u.reg_read(r.UC_RISCV_REG_MSTATUS) | 0x6000)   # FPU aan
 for s in extract_fit(IMG)['segments']:
     u.mem_write(s['load_address'], s['data'])
+import xthead
+XT = xthead.install(u, [(s['load_address'], s['data']) for s in extract_fit(IMG)['segments']])  # T-Head-instructies
 u.emu_start(0x40000000, 0x40006428, count=200000)          # reset-shim: payload kopiëren
 assert u.reg_read(r.UC_RISCV_REG_PC) == 0x40006428
 
@@ -47,6 +49,11 @@ def on_code(uc, addr, size, _):
         t = int(icount[0] / ipt[0]); uc.reg_write(r.UC_RISCV_REG_A0, t & 0xffffffff)
         uc.reg_write(r.UC_RISCV_REG_A1, t >> 32); uc.reg_write(r.UC_RISCV_REG_PC, uc.reg_read(r.UC_RISCV_REG_RA))
 u.hook_add(UC_HOOK_CODE, on_code)
+from unicorn import UC_HOOK_MEM_UNMAPPED
+def on_unmapped(uc, access, addr, size, value, _):
+    print('niet-gemapt geheugen: %#x (pc %#x, ra %#x)' % (addr, uc.reg_read(r.UC_RISCV_REG_PC), uc.reg_read(r.UC_RISCV_REG_RA)))
+    return False
+u.hook_add(UC_HOOK_MEM_UNMAPPED, on_unmapped)
 
 def call(fn, args=(), fargs=(), stack=b''):
     sp = STR + 0x8000 - 64
@@ -167,6 +174,62 @@ res['format'] = {f'{i}:{v}': fmt(i, v)[0] for i, v in [(0, .5), (6, 0.), (6, .5)
 res['format_index11_rc'] = fmt(11, .5)[1]
 res['format_nan'] = fmt(3, float('nan'))[0]
 res['defaults'] = [round(x, 3) for x in struct.unpack('<11f', u.mem_read(SYM['nc_octave_defaults_values'], 44))]
+
+# 6. Fase A: de echte native brokverwerker 0x30043800 (ITCM) met een gesimuleerd DMA-blok
+#    (64 frames interleaved stereo int32, sample in de bovenste 24 bits). Hij roept via de
+#    twee haken nc_hc_amp en nc_hc_dispatch aan; daarna de native uitgangstrap naar DMA-uit.
+CHUNK, DIN, DOUT = 0x30043800, 0x30160000, 0x30161000
+AMP_ON, AMP_SEL, AMP_TAB = 0x30104879, 0x30104878, 0x30104810
+FA = SYM['nc_hc_fase_a']
+u.mem_write(SYM['nc_octave_fault'], b'\0\0\0\0'); ipt[0] = INSTR_PER_US / 4.0
+u.mem_write(0x3008ab3c, struct.pack('<f', 1.0))            # ingangsgain
+u.mem_write(0x3008ab48, struct.pack('<f', 1.0)); u.mem_write(0x3008ab44, struct.pack('<f', 1.0))
+u.mem_write(0x3008ab4d, b'\x64')                           # master 100
+u.mem_write(0x30104128, struct.pack('<I', 48000))
+fa = lambda i: struct.unpack('<I', u.mem_read(FA + 4 * i, 4))[0]
+def chunk(samples):
+    words = []
+    for x in samples:
+        v = max(-1.0, min(1.0, x)); w = int(v * 8388607) << 8
+        words += [w & 0xffffffff, 0]                       # alleen links is de pedal-ingang
+    u.mem_write(DIN, struct.pack('<128I', *words)); u.mem_write(DOUT, bytes(512))
+    _, n = call(CHUNK, (DIN, DOUT, 0, 0, 0, 0))
+    calls = struct.unpack('<I', u.mem_read(CALLS, 4))[0]; u.mem_write(CALLS, struct.pack('<I', calls + 1))
+    s = struct.unpack('<I', u.mem_read(SUM, 4))[0]
+    u.mem_write(SUM, struct.pack('<I', (s + int(n / ipt[0]) + 400) & 0xffffffff))
+    out = struct.unpack('<128i', u.mem_read(DOUT, 512))
+    return [o / 2147483648.0 for o in out[0::2]], [o / 2147483648.0 for o in out[1::2]], n
+
+grace = int(3.0 * FS / N)
+t = 0; native_err = 0.; native_n = []; wet = 0.; own_n = []; amp_skips0 = None
+# native uitgangstrap: x * gain(0x3008ab44) * 0.5 (0x400889ac) * master/100 -> lege keten = 0.5 * x
+OUT_G = 0.5
+for k in range(grace + 200):
+    if k == grace:                                         # na de grace: een preset met versterker
+        u.mem_write(AMP_ON, b'\1'); u.mem_write(AMP_SEL, b'\0'); u.mem_write(AMP_TAB, b'\1')
+        u.mem_write(0x3010487c, struct.pack('<I', 0x30180000))   # versterker-state (native setter schrijft erin)
+        amp_skips0 = fa(4)
+    inp = [0.6 if (t + i) % (FS // 4) < 240 else 0.02 * math.sin(2 * math.pi * 220 * (t + i) / FS) for i in range(N)]; t += N
+    ol, orr, n = chunk(inp)
+    if k < grace:
+        native_n.append(n)
+        if k > 4: native_err = max(native_err, max(abs(a - OUT_G * b) for a, b in zip(ol, inp)))   # lege stock-keten: doorgeven
+    elif k > grace + 4:
+        wet = max(wet, max(abs(x) for x in ol)); own_n.append(n)
+res['xthead_executed'] = dict(XT)
+res['fase_a'] = dict(blocks=fa(0), native_blocks=fa(1), own_blocks=fa(2), reason=fa(3), amp_skipped=fa(4) - amp_skips0,
+                     grace_passthrough_max_err=native_err, wet_peak=wet,
+                     native_chunk_instr_avg=sum(native_n) / len(native_n),
+                     own_chunk_instr_avg=sum(own_n) / len(own_n), own_chunk_instr_max=max(own_n),
+                     own_load_pct_max=100 * max(own_n) / (4e6 * N / FS * ipt[0]), fault=fault())
+# CPU-fout -> terug naar de native keten (latch), geen eigen DSP meer
+ipt[0] = INSTR_PER_US / 4.0 / 4.0
+for k in range(6): chunk([0.3] * N)
+own_before = fa(2); ipt[0] = INSTR_PER_US / 4.0
+ol, orr, n = chunk([0.25] * N)
+res['fase_a'].update(fault_slow_clock=fault(), native_after_fault=fa(2) == own_before and fa(3) == 2,
+                     native_after_fault_passthrough=abs(ol[10] - OUT_G * 0.25) < 1e-4)
+u.mem_write(SYM['nc_octave_fault'], b'\0\0\0\0')
 print(json.dumps(res, indent=1))
 
 ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'] == 0 and res['state_in_ring']
@@ -175,5 +238,10 @@ ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'
       and res['name'] == 'HARDCORE' and res['labels'][10] == 'LEVEL' and res['labels'][11] == ''
       and res['format_index11_rc'] != 0 and res['midi_cc_active'] == 'hardcore' and res['midi_note_active'] == 'hardcore'
       and res['midi_pc_active'] == 'native' and res['midi_sysex_like'] == 'native' and res['midi_cc_inactive'] == 'native'
-      and res['midi_queued'] == 2 and res['midi_drained'] and res['midi_note_kick_peak'] > 0.05 and res['format']['7:0.5'] == '0' and res['format']['8:1.0'] == 'x16')
+      and res['midi_queued'] == 2 and res['midi_drained'] and res['midi_note_kick_peak'] > 0.05 and res['format']['7:0.5'] == '0' and res['format']['8:1.0'] == 'x16'
+      and res['fase_a']['native_blocks'] >= grace and res['fase_a']['own_blocks'] >= 190
+      and res['fase_a']['grace_passthrough_max_err'] < 1e-4 and res['fase_a']['wet_peak'] > 0.05
+      and res['fase_a']['amp_skipped'] >= 190 and res['fase_a']['fault'] == 0
+      and res['fase_a']['fault_slow_clock'] in (1, 2) and res['fase_a']['native_after_fault']
+      and res['fase_a']['native_after_fault_passthrough'])
 print('EMULATIE', 'OK' if ok else 'MISLUKT'); sys.exit(0 if ok else 1)
