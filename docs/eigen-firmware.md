@@ -175,15 +175,33 @@ de Livtra-UI.
 **Aanpak:** de LVGL-taak laten doorlopen tot na de grace, en dan:
 - **schermupdates afvangen**: de flush-callback naar `aicfb` op de display-driver van de
   LVGL-port (Luban-Lite `lv_port_disp`) wordt een no-op;
-- **zelf tekenen** in de framebuffer, met een eigen bitmapfont in de payload;
+- **zelf tekenen** in de framebuffer, met de vector-engine `ui/vec.c` (geen bitmapfont);
 - **knoppen afvangen**: de encoder-events in de indev-read-callback (`knob`, `master_knob`).
 
 Te vinden: de framebuffer-info-ioctl, het flush-adres, het indev-read-adres en de
 GPIO's van de encoders.
 
+## Vector-UI (geldt voor fase B en C)
+
+Keuze van de eigenaar (2026-11-27): **alle graphics zijn vector**, in de stijl van de Atari-vectorkasten. Het beeld wordt echt opgebouwd uit lijnsegmenten, zonder bitmaps.
+
+- `ui/vec.c` tekent elk segment als een gloeiende straal. Het licht valt af met de afstand tot de middellijn: kern ≤ 0,55 px, gloed tot 3 px, optellend en verzadigend. Kruisingen en hoekpunten lichten dus feller op, net als op de buis; overstuurd wordt het wit.
+- Eigen streepfont op een raster van 4×6 (hoofdletters, cijfers, leestekens). `vec_text3d` geeft geëxtrudeerde letters (achtervlak, diepte-lijnen, voorvlak).
+- Tekenbudget: een scherm kan segment voor segment "door de straal" worden opgebouwd.
+- Kosten op de pedal (Unicorn, RV32 -O2): volledig opstartframe ~4,1 M instructies ≈ 11,5 ms bij 360 instr/µs. Gewone schermen tekenen alleen opnieuw bij een wijziging.
+- Pixelformaat: de engine schrijft RGB565. Het formaat van `aicfb` wordt in fase B bevestigd.
+
+**Opstartscherm** (`vec_boot(fb, t_ms)`, een pure functie van de tijd):
+1. warp-sterrenveld (0–1,1 s);
+2. **NANOHARDCORE** in schuine, geëxtrudeerde oranje vectorletters, streep voor streep getekend (0,45–1,75 s);
+3. twee horizonlijnen die vanuit het midden openen;
+4. **BY PLIEUWSKI** in teal (1,9–2,6 s).
+
+Daarna blijft het beeld staan met langzame sterren. Gemaakt in de geest van de Atari-vectorkasten, met eigen letters, zonder logo's of lettertypes van anderen. Voorbeeld: `docs/img/opstartscherm.gif`, of `make ui`.
+
 ## Fase C: apparaat
 
-- Eigen opstartscherm, zodra het scherm vrij is.
+- Eigen opstartscherm, zodra het scherm vrij is: **gebouwd** (`vec_boot`, zie Vector-UI). Nog aan te sluiten op de framebuffer (fase B).
 - Eigen presets (knopstanden en CC-staat) in een eigen stuk van de `presets`-partitie.
   Eerst uitzoeken welk deel vrij of veilig is.
 - MIDI: de eigen indeling bestaat al. Programmawissel kan eigen presets laden.

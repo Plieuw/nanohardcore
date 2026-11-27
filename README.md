@@ -8,6 +8,7 @@ Werk je hier (als mens of agent) aan mee: lees eerst [`AGENTS.md`](AGENTS.md).
 make render   # demo's renderen naar out/
 make test     # regressiepoort: faalt als een gemeten eigenschap uit deze README wegdrijft (ook in CI)
 make rv       # RV32IMAFDC-build + instructietelling in Unicorn (clang, ld.lld, pip install unicorn pyelftools)
+make ui       # vector-UI: frames van het opstartscherm naar out/vec/
 ```
 
 Een eigen effectketen voor de Livtra NanoCore (RV32IMAFDC, float32, 48 kHz op de pedal met firmware 1.2):

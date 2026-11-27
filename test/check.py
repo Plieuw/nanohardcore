@@ -106,5 +106,35 @@ check("device bank: CC 106 cannot lift the pedal ceiling", v["dev_fmax_after_cc1
 check("device bank: moving one knob keeps MIDI-set values", abs(v["dev_midi_tune_kept"] - 1.0) < 1e-6, f"{v['dev_midi_tune_kept']}")
 check("state fits the 65,536-byte native ring", v["state_bytes"] < 65536, f"{v['state_bytes']:.0f} bytes")
 
+# vector UI (ui/vec.c): bounds, boot screen layout and build-up, font coverage, beam profile
+o = run([build("vectest", ["test/vec.c", "ui/vec.c"])])
+check("vec: no writes outside the 320x240 window", "guard 1" in o, re.search(r"guard \d", o).group(0))
+n, x0, x1, y0, y1 = map(int, re.search(r"title (\d+) (-?\d+) (-?\d+) (-?\d+) (-?\d+)", o).groups())
+check("vec boot: title centred (+-3 px)", abs((x0 + x1) / 2 - 160) <= 3, f"centre {(x0 + x1) / 2:.1f}")
+check("vec boot: title inside 12 px margins", x0 >= 12 and x1 <= 307, f"x {x0}..{x1}")
+bu = [(int(a), int(b)) for a, b in re.findall(r"(\d+):(\d+)", re.search(r"build(.*)", o).group(1))]
+pre = max(c for t_, c in bu if t_ <= 500); peak = max(c for _, c in bu)
+grow = all(b2 >= b1 - 2 for (t1, b1), (t2, b2) in zip(bu, bu[1:]) if t2 <= 1800)
+check("vec boot: title not visible before the beam starts", pre <= 10, f"{pre} px")
+check("vec boot: title builds up monotonically until 1.8 s", grow, "ok" if grow else "daalt")
+check("vec boot: finished title stays (>= 97% of peak)", bu[-1][1] >= 0.97 * peak, f"{bu[-1][1]}/{peak}")
+check("vec boot: deterministic in t", "deterministic 1" in o, "")
+check("vec font: all UI characters present, unknown rejected", "glyphs 1 1 0" in o, re.search(r"glyphs.*", o).group(0))
+prof = list(map(int, re.search(r"profile (.*)", o).group(1).split()))
+check("vec beam: symmetric core with glow, < 4 px wide", prof == prof[::-1] and prof[0] == 0 and max(prof) == 31,
+      " ".join(map(str, prof)))
+# freestanding for the pedal: RV32 build without libm/libc and without writable statics
+import shutil
+if shutil.which("clang") and shutil.which("llvm-objdump"):
+    obj = os.path.join(B, "vec.rv.o")
+    subprocess.run(["clang", "--target=riscv32-unknown-elf", "-march=rv32imafdc", "-mabi=ilp32d", "-O2",
+                    "-ffreestanding", "-fno-builtin", "-nostdlib", "-msmall-data-limit=0", "-Werror", "-Wall", "-Wextra", "-c",
+                    "ui/vec.c", "-o", obj], cwd=ROOT, check=True)
+    hdr = run(["llvm-objdump", "-h", obj])
+    writable = [l.split()[1] for l in hdr.splitlines() if re.search(r"\.(s?data|s?bss)\b", l) and int(l.split()[2], 16) > 0]
+    und = run(["llvm-nm", "-u", obj]).split()
+    check("vec RV32: freestanding, no writable statics", not writable and not und,
+          f"writable={writable} undefined={und}")
+
 print(f"\n{len(fails)} failure(s)" + (": " + ", ".join(fails) if fails else ""))
 sys.exit(1 if fails else 0)
