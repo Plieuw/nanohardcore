@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nanohardcore · firmware-backup (alleen lezen)</title>
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:2rem auto;padding:0 1rem;background:#111;color:#eee}
+  h1{font-size:1.4rem} .box{background:#1c1c1c;border:1px solid #333;border-radius:8px;padding:1rem;margin:1rem 0}
+  button,a.btn{font:inherit;padding:.6rem 1rem;border-radius:6px;border:0;background:#e8562a;color:#fff;cursor:pointer;text-decoration:none;display:inline-block;margin:.25rem 0}
+  button:disabled{background:#444;color:#888;cursor:default} progress{width:100%} #error{color:#ff7a7a}
+  pre{white-space:pre-wrap;word-break:break-all;background:#000;padding:.5rem;border-radius:4px} ol li{margin:.3rem 0}
+</style>
+</head>
+<body>
+<h1>NanoCore firmware-backup <small>(alleen lezen)</small></h1>
+<p>Deze pagina leest het OS-deel van je NanoCore uit en geeft je een backupbestand. <b>Er wordt niets naar de pedal geschreven.</b> Met die backup kan nanohardcore een patch maken die exact bij jouw firmware past.</p>
+<div class="box">
+<ol>
+  <li>Haal koptelefoon en audiokabels eruit en sluit ToneCommand.</li>
+  <li>Sluit de pedal met USB aan op een computer met desktop Chrome of Edge.</li>
+  <li>Klik <b>Start</b>, sta MIDI (SysEx) toe en kies daarna <b>Livtra Lupgrader</b>.</li>
+  <li>Download de backup als het lezen klaar is (~1 minuut).</li>
+  <li>Haal de USB-kabel eruit en zet de pedal opnieuw aan: hij start normaal op.</li>
+</ol>
+<label><input type="checkbox" id="audio"> Audiokabels en koptelefoon zijn losgekoppeld</label><br>
+<button id="start">Start</button>
+<button id="connect" hidden>Verbind bootloader</button>
+<progress id="progress" max="100" value="0"></progress>
+<p><b id="status">Klaar om te beginnen</b><br><span id="detail"></span></p>
+<p id="error" hidden></p>
+<pre id="result"></pre>
+<a id="download" class="btn" hidden>Download backup</a>
+</div>
+<p><small>De backup bevat Livtra-firmware: deel hem niet publiek en zet hem niet in een repo. USB-code: <a href="https://github.com/jcuhnoio/re-nanocore">re-nanocore</a> (MIT). <a href="../">← nanohardcore</a></small></p>
+<script type="module" src="backup.js"></script>
+</body>
+</html>
