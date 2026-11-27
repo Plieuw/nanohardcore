@@ -18,9 +18,12 @@ void entry(void){
     if (scenario == 2) {  /* low clocks with audible bleed, sync 1.5 */
       chain_midi(&C,0xB0,86,23); chain_midi(&C,0xB0,25,40); chain_midi(&C,0xB0,90,127);
     }
-    if (scenario == 3 || scenario == 4) { chain_init(&C, 48000.f); C.grace_left = 0; C.wet_g = 1.f; float q[11]; for (int i=0;i<11;i++) q[i]=devp[i]; chain_device_controls(&C, q); if (devfmax > 0.f) C.sh.fmax = devfmax; }
+    if (scenario >= 3) { chain_init(&C, 48000.f); C.grace_left = 0; C.wet_g = 1.f; float q[11]; for (int i=0;i<11;i++) q[i]=devp[i]; chain_device_controls(&C, q); if (devfmax > 0.f) C.sh.fmax = devfmax; }
     chain_midi(&C,0x90,36,127);
     return;
+  }
+  if (scenario == 5) {   /* MIDI: an EQ CC every block (forces the EQ network rebuild) */
+    static unsigned k5; chain_midi(&C, 0xB0, 110, (uint8_t)(k5++ * 7 % 128));
   }
   if (scenario == 4) {   /* knob being turned: a new control value every block (FREQ) */
     static unsigned k; float q[11]; for (int i=0;i<11;i++) q[i]=devp[i];

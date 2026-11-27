@@ -123,6 +123,37 @@ res['fault_with_slow_clock'] = fault()
 ol, orr, n = block(0, [0.25] * N)
 res['bypass_after_fault'] = max(abs(x) for x in ol) == 0.0 and n < 3000   # triggerstand: stil
 
+# 4b. MIDI-haak (USB+BLE): native entry 0x4002db26 springt naar nc_midi_gate
+HOOK, HELPER, FX2SUB = 0x4002db26, 0x4000c3a4, 0x400b0ec1
+u.mem_write(SYM['nc_octave_fault'], b'\0\0\0\0'); ipt[0] = INSTR_PER_US / 4.0
+def midi(port, st, d1, d2, has2=1):
+    u.reg_write(r.UC_RISCV_REG_T0, 0)
+    sp = STR + 0x7000; u.reg_write(r.UC_RISCV_REG_SP, sp); u.reg_write(r.UC_RISCV_REG_RA, STOP)
+    for i, v in enumerate((port, st, d1, d2, has2)): u.reg_write(getattr(r, f'UC_RISCV_REG_A{i}'), v)
+    try: u.emu_start(HOOK, STOP, count=20000)
+    except Exception: pass
+    pc = u.reg_read(r.UC_RISCV_REG_PC)
+    return 'hardcore' if pc == STOP and u.reg_read(r.UC_RISCV_REG_SP) == sp else ('native' if pc == HELPER and u.reg_read(r.UC_RISCV_REG_T0) == 0x4002db2a and u.reg_read(r.UC_RISCV_REG_A1) == st and u.reg_read(r.UC_RISCV_REG_A3) == d2 and u.reg_read(r.UC_RISCV_REG_SP) == sp else hex(pc))
+def stop_at_helper(uc, addr, size, _):
+    if addr == HELPER: uc.emu_stop()
+hh = u.hook_add(UC_HOOK_CODE, stop_at_helper, begin=HELPER, end=HELPER)
+u.mem_write(FX2SUB, b'\x08')
+res['midi_cc_active'] = midi(0, 0xB0, 24, 100)
+res['midi_note_active'] = midi(1, 0x90, 36, 127)
+res['midi_pc_active'] = midi(1, 0xC0, 5, 0, 0)
+res['midi_sysex_like'] = midi(1, 0xF2, 1, 2)
+head = lambda: struct.unpack('<I', u.mem_read(SYM['nc_hc_midi_head'], 4))[0]
+tail = lambda: struct.unpack('<I', u.mem_read(SYM['nc_hc_midi_tail'], 4))[0]
+res['midi_queued'] = head() - tail()
+u.mem_write(PAR, struct.pack('<11f', 0.5, 0.5, 0.5, 0.333, 0.75, 0.35, 0, 0.75, 0, 0, 0.8))
+pk = 0.
+for k in range(12): ol, orr, n = block(k, [0.] * N); pk = max(pk, max(abs(x) for x in ol))
+res['midi_drained'] = head() == tail()
+res['midi_note_kick_peak'] = pk                               # stille input: alleen de MIDI-noot laat de 909 slaan
+u.mem_write(FX2SUB, b'\x03')
+res['midi_cc_inactive'] = midi(0, 0xB0, 24, 100)
+u.hook_del(hh)
+
 # 5. UI
 def cstr(a):
     b = bytes(u.mem_read(a, 32)); return b[:b.index(0)].decode()
@@ -142,5 +173,7 @@ ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'
       and res['state_bytes'] < 65536 and res['grace_dry_max_err'] == 0 and res['wet_peak'] > 0.05
       and res['fault_after_run'] == 0 and res['fault_with_slow_clock'] in (1, 2) and res['bypass_after_fault']
       and res['name'] == 'HARDCORE' and res['labels'][10] == 'LEVEL' and res['labels'][11] == ''
-      and res['format_index11_rc'] != 0 and res['format']['7:0.5'] == '0' and res['format']['8:1.0'] == 'x16')
+      and res['format_index11_rc'] != 0 and res['midi_cc_active'] == 'hardcore' and res['midi_note_active'] == 'hardcore'
+      and res['midi_pc_active'] == 'native' and res['midi_sysex_like'] == 'native' and res['midi_cc_inactive'] == 'native'
+      and res['midi_queued'] == 2 and res['midi_drained'] and res['midi_note_kick_peak'] > 0.05 and res['format']['7:0.5'] == '0' and res['format']['8:1.0'] == 'x16')
 print('EMULATIE', 'OK' if ok else 'MISLUKT'); sys.exit(0 if ok else 1)
