@@ -143,6 +143,14 @@ static void bypass(const float *l, const float *r, float *ol, float *or_,
         ol[i] = a; if (stereo && or_) or_[i] = b;
     }
 }
+/* bypass van ons eigen effect (CPU-limiet): in de triggerstanden is de input een
+ * trigger, geen audio -> stilte; in de AUDIO-standen droog */
+static void bypass_state(const State *s, const float *l, const float *r, float *ol, float *or_,
+                         uint32_t frames, uint32_t stereo)
+{
+    if (s->chain.mode != 0) { bypass(l, r, ol, or_, frames, stereo); return; }
+    for (uint32_t i = 0; i < frames; i++) { ol[i] = 0.f; if (stereo && or_) or_[i] = 0.f; }
+}
 
 uint32_t nc_hc_state_bytes(void) { return sizeof(State); }
 
@@ -190,7 +198,7 @@ void nc_octave_process(void *family, const float *left, const float *right,
     uint32_t overruns = word(AUDIO_OVERRUNS), calls = word(AUDIO_CALLS);
     if (!nc_octave_fault && guard_observe(&guard, calls, overruns, word(AUDIO_SUM), word(AUDIO_DEADLINE)))
         nc_octave_fault = 2;
-    if (nc_octave_fault) { bypass(left, right, out_left, out_right, frames, stereo); return; }
+    if (nc_octave_fault) { bypass_state(s, left, right, out_left, out_right, frames, stereo); return; }
 
     uint64_t start = ticks();
     float block_ticks = TICK_HZ * (float)frames / s->rate;
@@ -211,8 +219,8 @@ void nc_octave_process(void *family, const float *left, const float *right,
         chain_process(&s->chain, mono, ol, or_, n);
         if (ticks() - start > hard) {            /* harde grens: rest droog, latch */
             nc_octave_fault = 1;
-            bypass(left + off, right ? right + off : 0, out_left + off,
-                   out_right ? out_right + off : 0, frames - off, stereo);
+            bypass_state(s, left + off, right ? right + off : 0, out_left + off,
+                         out_right ? out_right + off : 0, frames - off, stereo);
             break;
         }
         for (uint32_t i = 0; i < n; i++) {

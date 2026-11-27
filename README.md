@@ -200,7 +200,7 @@ Onze native wijzigingen zijn een **strikte deelverzameling** van die van de gete
 |---|---|
 | payload | 28 KB code; 3,8 KB state in de 64 KB-ring |
 | reset-shim in Unicorn (re-nanocore `check_octave_120_boot`) | payload exact gekopieerd, native entry bereikt, registers behouden, BSS-clear raakt payload niet |
-| functionele emulatie van de gepatchte image (`firmware/nanocore-1.2/emulate.py`) | init 85k instructies (~0,24 ms); 3 s exact droog, daarna verwerkt; bewaking latcht bypass en toont CPU LIMIT |
+| functionele emulatie van de gepatchte image (`firmware/nanocore-1.2/emulate.py`) | init 85k instructies (~0,24 ms); 3 s stil in de triggerstand, daarna verwerkt; bewaking latcht bypass (triggerstand: stil) en toont CPU LIMIT |
 | CPU (RV32, 360 instr/µs zoals gemeten op de pedal) | standaardknoppen gem. 36%, zwaarste blok 43%; zwaarste knopstand 52,5% (grens 65%) |
 | browserinstaller tegen de backup + nagebootste Lupgrader | 8 sectoren geschreven, exact gelijk aan de build; terugzetten geeft exact stock; 1.10 en een beschadigde image geweigerd |
 
