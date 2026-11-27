@@ -92,7 +92,7 @@ check("trigger: all pulses detected", mp and mp.group(1) == mp.group(2), mp.grou
 # device-facing behaviour: boot grace, AUDIO mode, 48 kHz, 12-control bank
 o = run([build("device", ["test/device.c", *DSP])])
 v = dict((k, float(x)) for k, x in re.findall(r"^(\w+) ([-\d.]+)$", o, re.M))
-check("boot grace: dry and untouched for 3 s", v["grace_dry_max_err"] < 1e-6, f"{v['grace_dry_max_err']:.2e}")
+check("boot grace: silent for 3 s in trigger mode", v["grace_dry_max_err"] < 1e-6, f"{v['grace_dry_max_err']:.2e}")
 check("boot grace: processing after the grace", v["after_grace_processed"] > 0.05, f"{v['after_grace_processed']:.3f}")
 check("48 kHz: all 7 pulses after the grace detected", v["triggers_48k"] == 7, f"{v['triggers_48k']:.0f}")
 check("AUDIO mode: silence in = silence out (909 off)", v["audio_mode_silence"] < 1e-4, f"{v['audio_mode_silence']:.2e}")

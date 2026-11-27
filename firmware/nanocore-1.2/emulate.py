@@ -92,7 +92,7 @@ for k in range(total):
     ol, orr, n = block(k, inp)
     if k < grace_blocks - 1:
         f32 = [struct.unpack('<f', struct.pack('<f', x))[0] for x in inp]
-        dry_err = max(dry_err, max(abs(a - b) for a, b in zip(ol, f32)), max(abs(a - b) for a, b in zip(orr, f32)))
+        dry_err = max(dry_err, max(abs(a) for a in ol), max(abs(a) for a in orr))   # triggerstand: stil
     elif k > grace_blocks + 4:
         wet_peak = max(wet_peak, max(abs(x) for x in ol)); per_block.append(n)
 fault = lambda: struct.unpack('<I', u.mem_read(SYM['nc_octave_fault'], 4))[0]
@@ -116,11 +116,12 @@ res['fault_after_heavy'] = fault(); ipt[0] = INSTR_PER_US / 4.0
 
 # 3. subtype != 8 komt nooit in onze verwerking: alleen via de native proloog (niet emuleerbaar)
 # 4. CPU-bewaking: trage klok (x4) -> latch bypass, scherm toont CPU LIMIT
+u.mem_write(PAR, struct.pack('<11f', 0.5, 0.5, 0.5, 0.333, 0.75, 0.35, 0, 0.75, 0, 0, 0.8))   # 909-stand
 ipt[0] = INSTR_PER_US / 4.0 / 4.0
 for k in range(6): ol, orr, n = block(k, [0.3] * N)
 res['fault_with_slow_clock'] = fault()
 ol, orr, n = block(0, [0.25] * N)
-res['bypass_after_fault'] = max(abs(x - 0.25) for x in ol) == 0.0 and n < 3000
+res['bypass_after_fault'] = max(abs(x) for x in ol) == 0.0 and n < 3000   # triggerstand: stil
 
 # 5. UI
 def cstr(a):

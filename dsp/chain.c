@@ -160,9 +160,10 @@ void chain_process(Chain *c, const float *in, float *outL, float *outR, uint32_t
         mackie_update(&c->mk);
         c->dirty = 0;
     }
-    if (c->grace_left > 0) {                            /* boot grace: dry, no DSP load */
+    if (c->grace_left > 0) {        /* boot grace, no DSP load: trigger mode = silence
+                                     * (the input is a trigger, not audio), audio modes = dry */
         for (uint32_t i = 0; i < n; i++) {
-            float x = in ? in[i] : 0.f;
+            float x = (in && c->mode != 0) ? in[i] : 0.f;
             outL[i] = x; if (outR) outR[i] = x;
         }
         c->grace_left -= (int)n;
@@ -192,7 +193,8 @@ void chain_process(Chain *c, const float *in, float *outL, float *outR, uint32_t
         o *= c->mute_g;
         if (c->wet_g < 1.f) {                           /* 20 ms fade-in after the grace */
             c->wet_g += 1.f / (0.02f * c->fs); if (c->wet_g > 1.f) c->wet_g = 1.f;
-            o = x + (o - x) * c->wet_g;
+            float d = c->mode != 0 ? x : 0.f;
+            o = d + (o - d) * c->wet_g;
         }
         if (outR) { outL[i] = o * c->pan_l; outR[i] = o * c->pan_r; }
         else outL[i] = o;

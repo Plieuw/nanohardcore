@@ -14,7 +14,7 @@ int main(void){
   for(int t=FS/10;t<N-FS/4;t+=FS/4) for(int i=0;i<240;i++) in[t+i]=0.6f;
   for(int i=0;i<N;i+=64){ int m=N-i<64?N-i:64; chain_process(&c,in+i,oL+i,oR+i,(uint32_t)m); }
   int grace=(int)(CHAIN_GRACE_S*FS); double dryerr=0, wet=0;
-  for(int i=0;i<grace-64;i++) dryerr=fmax(dryerr,fabs(oL[i]-in[i]));
+  for(int i=0;i<grace-64;i++) dryerr=fmax(dryerr,fabs(oL[i]));   /* trigger mode: silent */
   for(int i=grace+FS/2;i<N;i++) wet=fmax(wet,fabs(oL[i]-in[i]));
   printf("grace_dry_max_err %.6f\n", dryerr);
   printf("after_grace_processed %.3f\n", wet);
