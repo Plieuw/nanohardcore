@@ -43,10 +43,11 @@ u.emu_start(0x40000000, 0x40006428, count=200000)          # reset-shim: payload
 assert u.reg_read(r.UC_RISCV_REG_PC) == 0x40006428
 
 icount = [0]; ipt = [INSTR_PER_US / 4.0]                    # instructies per tick van 4 MHz
+toff = [0]                                                  # extra tijd (ticks) voor UI-tests
 def on_code(uc, addr, size, _):
     icount[0] += 1
     if addr == TICKS:                                       # native timer -> instructieklok
-        t = int(icount[0] / ipt[0]); uc.reg_write(r.UC_RISCV_REG_A0, t & 0xffffffff)
+        t = int(icount[0] / ipt[0]) + toff[0]; uc.reg_write(r.UC_RISCV_REG_A0, t & 0xffffffff)
         uc.reg_write(r.UC_RISCV_REG_A1, t >> 32); uc.reg_write(r.UC_RISCV_REG_PC, uc.reg_read(r.UC_RISCV_REG_RA))
 u.hook_add(UC_HOOK_CODE, on_code)
 from unicorn import UC_HOOK_MEM_UNMAPPED
@@ -230,6 +231,78 @@ ol, orr, n = chunk([0.25] * N)
 res['fase_a'].update(fault_slow_clock=fault(), native_after_fault=fa(2) == own_before and fa(3) == 2,
                      native_after_fault_passthrough=abs(ol[10] - OUT_G * 0.25) < 1e-4)
 u.mem_write(SYM['nc_octave_fault'], b'\0\0\0\0')
+
+# 7. Fase B: scherm en knoppen. nc_hc_ui_tick (in plaats van lv_timer_handler) en
+#    nc_hc_enc_dispatch; aicfb, pinnen en de native LVGL/knop-functies onderschept.
+import subprocess
+ALL = {}
+for line in subprocess.run(['llvm-nm', '-S', str(ROOT / 'build/fw12/device.elf')], capture_output=True, text=True).stdout.splitlines():
+    p_ = line.split()
+    if len(p_) == 4: ALL[p_[3]] = (int(p_[0], 16), int(p_[1], 16))
+FBMEM, HANDLE = 0x301a0000, 0x30190000
+W_, H_ = 320, 240
+fbinfo = {'format': 14, 'bpp': 16}
+pans, native = [], {'lvgl': 0, 'enc': 0}
+pins = {39: 1, 75: 1}                                     # 1 = losgelaten (actief laag)
+u.mem_write(0x30117f78, struct.pack('<I', 39)); u.mem_write(0x30117f7c, struct.pack('<I', 75))
+u.mem_write(0x30118f3c, struct.pack('<I', HANDLE))
+def ret(uc, v=None):
+    if v is not None: uc.reg_write(r.UC_RISCV_REG_A0, v & 0xffffffff)
+    uc.reg_write(r.UC_RISCV_REG_PC, uc.reg_read(r.UC_RISCV_REG_RA))
+def periph(uc, addr, size, _):
+    if addr == 0x4005cb68:                                # aicfb ioctl
+        cmd, arg = uc.reg_read(r.UC_RISCV_REG_A1), uc.reg_read(r.UC_RISCV_REG_A2)
+        if cmd == 0x4662:
+            bpp = fbinfo['bpp']; stride = W_ * bpp // 8
+            uc.mem_write(arg, struct.pack('<5III', fbinfo['format'], bpp, stride, W_, H_, FBMEM, 2 * stride * H_))
+        elif cmd == 0x4643: pans.append(struct.unpack('<i', uc.mem_read(arg, 4))[0])
+        ret(uc, 0)
+    elif addr == 0x4004f4b8: native['lvgl'] += 1; ret(uc, 7)
+    elif addr == 0x40017f72: native['enc'] += 1; ret(uc)
+    elif addr == 0x40045290: ret(uc, pins.get(uc.reg_read(r.UC_RISCV_REG_A0), 1))
+hp = [u.hook_add(UC_HOOK_CODE, periph, begin=a, end=a) for a in (0x4005cb68, 0x4004f4b8, 0x40017f72, 0x40045290)]
+UNIT = 4096                                               # 1 UI-ms = 4096 ticks
+def ui_at(ms):
+    toff[0] = ms * UNIT - int(icount[0] / ipt[0])
+    v, n = call(SYM['nc_hc_ui_tick']); return v, n
+scr = lambda i: struct.unpack('<I', u.mem_read(SYM['nc_hc_screen'] + 4 * i, 4))[0]
+uih = lambda: struct.unpack('<I', u.mem_read(SYM['nc_hc_ui_head'], 4))[0]
+fb = {}
+v0, _ = ui_at(10); v1, _ = ui_at(1500); v2, _ = ui_at(3000)      # grace (start bij 10 ms)
+call(SYM['nc_hc_enc_dispatch'])
+gr = dict(returns=[v0, v1, v2], native_lvgl=native['lvgl'], native_enc=native['enc'], state=scr(0))
+_, n_take = ui_at(3020)                                   # overname + eerste bootframe
+_, n_boot = ui_at(3020 + 2000)                            # bootframe op t = 2000
+frame = bytes(u.mem_read(FBMEM + W_ * 2 * H_ * pans[-1], W_ * 2 * H_))
+subprocess.run([str(ROOT / 'build/vecshot'), str(ROOT / 'build'), '2000'], check=True)
+ref = (ROOT / 'build/boot_02000.ppm').read_bytes()[-W_ * H_ * 3:]
+same = 0
+for i in range(W_ * H_):
+    v = frame[2 * i] | frame[2 * i + 1] << 8
+    rgb = (((v >> 11) & 31) * 255 // 31, ((v >> 5) & 63) * 255 // 63, (v & 31) * 255 // 31)
+    same += all(abs(a - b) <= 9 for a, b in zip(rgb, ref[3 * i:3 * i + 3]))
+_, n_home = ui_at(3020 + 3700)                            # homescherm
+f_before = scr(2); _, n_idle = ui_at(3020 + 3730); idle_drew = scr(2) - f_before   # niets veranderd: niet tekenen
+head0 = uih()
+u.mem_write(0x30117f76, struct.pack('<h', 2)); ui_at(3020 + 3760)      # enc2 = B: +2
+head1 = uih()
+pins[39] = 0; ui_at(3020 + 3780); ui_at(3020 + 3800); ui_at(3020 + 3820)
+pins[39] = 1; ui_at(3020 + 3840); ui_at(3020 + 3860)                     # A kort: blok open
+opened = scr(8)
+call(SYM['nc_hc_enc_dispatch'])
+res['fase_b'] = dict(grace=gr, state=scr(0), reason=scr(1), frames=scr(2), info=[scr(3), scr(4), scr(5), scr(6)],
+                     pans=pans[:6], boot_frame_match_pct=round(100 * same / (W_ * H_), 2),
+                     instr_takeover=n_take, instr_boot_frame=n_boot, instr_home_frame=n_home,
+                     ms_boot_frame=round(n_boot / INSTR_PER_US / 1000, 1), ms_home_frame=round(n_home / INSTR_PER_US / 1000, 1),
+                     cc_queued_by_B=head1 - head0, a_press_opens_block=opened == 1,
+                     native_enc_after_takeover=native['enc'] - gr['native_enc'],
+                     native_lvgl_after_takeover=native['lvgl'] - gr['native_lvgl'],
+                     idle_tick_drew=idle_drew, instr_idle_tick=n_idle)
+# onbekend pixelformaat (RGB888): geen overname, alles blijft native
+sa, ss = ALL['S']; u.mem_write(sa, bytes(ss)); fbinfo.update(format=8, bpp=24)
+nl = native['lvgl']; ui_at(100); ui_at(3200); v_bad, _ = ui_at(3300)
+res['fase_b'].update(bad_format_state=scr(0), bad_format_reason=scr(1), bad_format_native=native['lvgl'] - nl, bad_format_return=v_bad)
+for h in hp: u.hook_del(h)
 print(json.dumps(res, indent=1))
 
 ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'] == 0 and res['state_in_ring']
@@ -243,5 +316,12 @@ ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'
       and res['fase_a']['grace_passthrough_max_err'] < 1e-4 and res['fase_a']['wet_peak'] > 0.05
       and res['fase_a']['amp_skipped'] >= 190 and res['fase_a']['fault'] == 0
       and res['fase_a']['fault_slow_clock'] in (1, 2) and res['fase_a']['native_after_fault']
-      and res['fase_a']['native_after_fault_passthrough'])
+      and res['fase_a']['native_after_fault_passthrough']
+      and res['fase_b']['grace']['returns'] == [7, 7, 7] and res['fase_b']['grace']['native_enc'] == 1
+      and res['fase_b']['state'] == 1 and res['fase_b']['pans'][:4] == [1, 0, 1, 0]
+      and res['fase_b']['boot_frame_match_pct'] >= 99.0 and res['fase_b']['cc_queued_by_B'] == 1
+      and res['fase_b']['a_press_opens_block'] and res['fase_b']['native_enc_after_takeover'] == 0
+      and res['fase_b']['native_lvgl_after_takeover'] == 0 and res['fase_b']['bad_format_state'] == 2
+      and res['fase_b']['bad_format_reason'] == 3 and res['fase_b']['bad_format_return'] == 7
+      and res['fase_b']['idle_tick_drew'] == 0)
 print('EMULATIE', 'OK' if ok else 'MISLUKT'); sys.exit(0 if ok else 1)

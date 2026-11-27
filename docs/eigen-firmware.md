@@ -169,17 +169,73 @@ hoort bij de P-extensie (bv. `ADD64`).
 
 ## Fase B: eigen scherm en knoppen
 
-**Doel:** het HARDCORE-ontwerp (Design-artifact, 320×240, A en B draai/druk) in plaats van
-de Livtra-UI.
+**Doel:** het HARDCORE-ontwerp (A en B: draaien en drukken) in plaats van de Livtra-UI.
 
-**Aanpak:** de LVGL-taak laten doorlopen tot na de grace, en dan:
-- **schermupdates afvangen**: de flush-callback naar `aicfb` op de display-driver van de
-  LVGL-port (Luban-Lite `lv_port_disp`) wordt een no-op;
-- **zelf tekenen** in de framebuffer, met de vector-engine `ui/vec.c` (geen bitmapfont);
-- **knoppen afvangen**: de encoder-events in de indev-read-callback (`knob`, `master_knob`).
+**Status (2026-11-27):** gebouwd en in emulatie bewezen. Nog niet op hardware.
 
-Te vinden: de framebuffer-info-ioctl, het flush-adres, het indev-read-adres en de
-GPIO's van de encoders.
+**Bevindingen (stock 1.2):**
+
+| onderwerp | bevinding | adres |
+|---|---|---|
+| GUI | **LVGL 9** (niet 8): `lv_display_create(w, h)` `0x4004fd76`, `set_buffers(…, DIRECT)` `0x4004ffac`, flush-cb `+0x28` | |
+| LVGL-taak | `"LVGL"`, lus: lock → **`lv_timer_handler` `0x4004f4b8`** → unlock → `0x40017eb4` → `mdelay(8..16)` | `0x40017a86`, aanroep `0x40017ab2` |
+| displayinit | `0x40017c68`: opent `aicfb` (singleton `0x30118f3c` = `{rt_device*, refs}`), ioctl **`0x4662`** = scherminfo `{format, bpp, stride(bytes), width, height, framebuffer, smem_len}`, twee buffers (fb, fb + stride·h) | |
+| flush | `0x40017b86`: cache schoonmaken `0x40017b48(adres, lengte)`, ioctl **`0x4643`** (pan, arg = &index 0/1), `0x4663` (eenmalig, aanzetten), **`0x4620`** (vsync) | ioctl-wrapper `0x4005cb68(handle, cmd, arg)` |
+| pixelformaat | tabel `0x40088f84`: mpp-formaat → LVGL-formaat. 14 = RGB565, 0/4 = (A/X)RGB8888 | |
+| paneel | ST7789, init-tabel met MADCTL `0x00` (mogelijk portret 240×320) | `0x4008c36c` |
+| encoders | GPIO-interrupts tellen int16-delta's. **enc1**: PB.5 (irq) / PB.6 (richting) → `0x30117f74`. **enc2**: PE.9 / PE.10 → `0x30117f76` | ISR `0x40042b3e`, `0x40042b18` |
+| drukknoppen | **PB.7** (`[0x30117f78]`): kort → `0x30117f86`, lang (> 0,6 s) → `0x30117f84`. **PE.11** (`[0x30117f7c]`): kort → `0x30117f87`. Actief laag, `rt_pin_read` `0x40045290` | scanner `0x40042d50` (taak `enc_poll`, 2 ms) |
+| knoppendispatcher | `0x40017f72` (elke 8 ms): leest en wist de tellers met `0x40042c7e`/`ca8`/`cd2`/`cfc`/`d26` en stuurt ze naar de Livtra-UI | aanroep `0x40018004` |
+
+**Haken** (`build.py`, beide `jal ra`, met controle op de originele bytes):
+- `0x40017ab2`: `jal lv_timer_handler` → **`jal nc_hc_ui_tick`** (`screen.c`).
+  - De eerste 3 s na de start van de LVGL-taak draait LVGL gewoon (regel 2).
+  - Daarna vraagt hij de scherminfo op. Bij RGB565 of (A/X)RGB8888, 320×240 of 240×320,
+    en genoeg ruimte voor twee buffers neemt onze code het scherm over.
+  - Vanaf dan draait LVGL niet meer. Wij tekenen het opstartscherm en daarna de UI met
+    de vector-engine in de achterste buffer, maken de cache schoon, pannen en wachten op
+    vsync.
+  - Anders blijft alles native (`nc_hc_screen[1]` = reden).
+- `0x40018004`: `jal 0x40017f72` → **`jal nc_hc_enc_dispatch`**. Native zolang onze UI het
+  scherm niet heeft, daarna leeg. Onze UI leest dan zelf de encoder-delta's (met de native
+  lees-en-wis-functies) en de knop-pinnen (ontdenderd), dus ook lang drukken en A+B.
+
+**UI** (`ui/hcui.c`, alles vector):
+- Home: de vier blokken met een vectoricoon en hun hoofdwaarde, plus een macrobalk
+  (B = FREQ 1).
+- Blokpagina's: 47 parameters, alle CC's van de keten.
+- Gebaren zoals in het ontwerp:
+  - A draaien = kiezen, A kort = openen/volgende pagina, A lang = home;
+  - B draaien = waarde (grof 4, fijn 1), B kort = fijn of schakelaar omzetten,
+    B lang = beginwaarde (bipolair exact 0);
+  - A+B kort = bypass (5 ms ramp), A+B lang = presets (fase C).
+- Waarden komen altijd uit de draaiende keten. Wijzigingen gaan als CC via een eigen
+  ring naar de audiotaak.
+- Er wordt alleen opnieuw getekend als het beeld verandert (handtekening over de
+  toestand en de zichtbare waarden).
+- Voorbeelden: `docs/img/ui-home.png`, `ui-sherman-env.png`, `ui-portret.png`, of `make ui`.
+
+**Emulatie** (`emulate.py` §7, echte gepatchte image; aicfb-ioctl's, pinnen en de
+native LVGL/knop-functies onderschept):
+- 3 s native, daarna overname;
+- pan 1, 0, 1, 0;
+- het opstartframe is 100 % pixelgelijk aan de host-render;
+- B +2 levert één CC in de wachtrij, A kort opent een blok;
+- daarna geen native LVGL of knopafhandeling meer;
+- een tick zonder wijziging tekent niets (~2.600 instructies);
+- RGB888 → geen overname, alles native.
+
+Kosten per frame: opstart ~3,8 M instructies (10,5 ms), homescherm ~7,5 M (20,9 ms),
+alleen bij een wijziging.
+
+**Op de pedal te bevestigen** (instelbaar in `screen.c`):
+1. Welke encoder links zit: `NC_UI_A_IS_ENC1`. Nu enc1 = A, de knop met de native
+   lange druk.
+2. De draairichting: `NC_UI_DIR_A` / `NC_UI_DIR_B`.
+3. Pixelformaat en oriëntatie: `nc_hc_screen[3..6]`. De engine past zich aan, maar de
+   echte waarde is nog onbekend.
+4. Of iets anders nog in de framebuffer schrijft (niet gevonden).
+5. Hoeveel tellen één klik van de encoder geeft.
 
 ## Vector-UI (geldt voor fase B en C)
 

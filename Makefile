@@ -21,6 +21,8 @@ render: build
 ui: build
 	$(CC) $(CFLAGS) -o build/vecshot host/vecshot.c ui/vec.c
 	mkdir -p out/vec && ./build/vecshot out/vec $$(seq 0 40 3600)
+	$(CC) $(CFLAGS) -o build/uishot host/uishot.c ui/hcui.c ui/vec.c $(DSP) -lm
+	./build/uishot out/vec
 
 # regression gate: builds the measurement programs and fails when a documented
 # property (909 pitch track, Mackie EQ, Sherman resonance/aliasing, MIDI map) drifts

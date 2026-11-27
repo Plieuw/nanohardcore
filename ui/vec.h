@@ -5,20 +5,21 @@
  * with a soft profile around its centre line, so crossings and polyline joints glow
  * brighter, as on the real tube.
  *
- * Freestanding C99 like dsp/: no libm, no malloc, no writable statics. The pixel
- * format of the native framebuffer (aicfb) is still to be confirmed in phase B; this
- * engine writes RGB565 into a caller-supplied buffer.
+ * Freestanding C99 like dsp/: no libm, no malloc, no writable statics. Pixels are
+ * RGB565 or XRGB8888 (whatever aicfb reports at run time); layouts use fb->w/fb->h,
+ * so a portrait 240x320 panel works as well as 320x240.
  */
 #ifndef VEC_H_INCLUDED
 #define VEC_H_INCLUDED
 #include <stdint.h>
 
-#define VEC_W 320
+#define VEC_W 320      /* reference size of the design */
 #define VEC_H 240
 
 typedef struct {
-    uint16_t *px;      /* RGB565, row-major */
+    void *px;          /* row-major pixels */
     int w, h, stride;  /* stride in pixels */
+    int bpp;           /* 16 = RGB565, 32 = XRGB8888 (0xAARRGGBB words); 0 counts as 16 */
 } VecFb;
 
 typedef struct { uint8_t r, g, b; } VecColor;

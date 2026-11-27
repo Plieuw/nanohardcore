@@ -123,18 +123,37 @@ check("vec font: all UI characters present, unknown rejected", "glyphs 1 1 0" in
 prof = list(map(int, re.search(r"profile (.*)", o).group(1).split()))
 check("vec beam: symmetric core with glow, < 4 px wide", prof == prof[::-1] and prof[0] == 0 and max(prof) == 31,
       " ".join(map(str, prof)))
+# HARDCORE UI (ui/hcui.c): parameters round-trip through the chain, gestures, drawing bounds
+o = run([build("uitest", ["test/ui.c", "ui/hcui.c", "ui/vec.c", *DSP])])
+m = re.search(r"params (\d+) unstable (\d+) inexact (\d+) glyphs_missing (\d+)", o)
+check("ui: every parameter stable through the chain", m.group(2) == "0", f"{m.group(1)} parameters, {m.group(2)} instabiel")
+check("ui: continuous parameters exact for all 128 CC values", m.group(3) == "0", m.group(3))
+check("ui: every label and value has vector glyphs", m.group(4) == "0", m.group(4))
+g = dict(re.findall(r"(\w+) (-?\d+)", re.search(r"gestures (.*)", o).group(1)))
+check("ui: B turn coarse = 4/count, fine = 1", g["coarse"] == "8" and g["fine"] == "1" and g["fine_on"] == "1", f"coarse {g['coarse']} (2 tellen) fine {g['fine']}")
+check("ui: B hold returns to the start value", g["reset"] == "1", g["reset"])
+check("ui: A turn wraps over the 4 blocks", g["blk"] == "1" and g["wrap"] == "3", f"{g['blk']} / {g['wrap']}")
+check("ui: A press opens / next page, A hold = home", g["open"] == "1" and g["page2"] == "1" and g["home"] == "1", f"{g['open']}{g['page2']}{g['home']}")
+check("ui: B press toggles a switch (LOW CUT)", g["lowcut"] == "1", g["lowcut"])
+check("ui: A+B press = bypass, A+B hold does not toggle", g["bypass"] == "1" and g["bypass_long"] == "1", f"{g['bypass']}/{g['bypass_long']}")
+check("ui: B hold on a bipolar control = exactly 0", g["hi_zero"] == "1", g["hi_zero"])
+m = re.search(r"draw screens (\d+) outside (\d+)", o)
+check("ui: all screens 16/32 bit, landscape/portrait, inside the buffer", m.group(2) == "0", f"{m.group(1)} schermen")
+
 # freestanding for the pedal: RV32 build without libm/libc and without writable statics
 import shutil
 if shutil.which("clang") and shutil.which("llvm-objdump"):
-    obj = os.path.join(B, "vec.rv.o")
-    subprocess.run(["clang", "--target=riscv32-unknown-elf", "-march=rv32imafdc", "-mabi=ilp32d", "-O2",
-                    "-ffreestanding", "-fno-builtin", "-nostdlib", "-msmall-data-limit=0", "-Werror", "-Wall", "-Wextra", "-c",
-                    "ui/vec.c", "-o", obj], cwd=ROOT, check=True)
-    hdr = run(["llvm-objdump", "-h", obj])
-    writable = [l.split()[1] for l in hdr.splitlines() if re.search(r"\.(s?data|s?bss)\b", l) and int(l.split()[2], 16) > 0]
-    und = run(["llvm-nm", "-u", obj]).split()
-    check("vec RV32: freestanding, no writable statics", not writable and not und,
-          f"writable={writable} undefined={und}")
+    for src, allowed in (("ui/vec.c", set()), ("ui/hcui.c", {"chain_midi"})):
+        obj = os.path.join(B, os.path.basename(src) + ".rv.o")
+        subprocess.run(["clang", "--target=riscv32-unknown-elf", "-march=rv32imafdc", "-mabi=ilp32d", "-O2",
+                        "-ffreestanding", "-fno-builtin", "-nostdlib", "-msmall-data-limit=0", "-Werror", "-Wall", "-Wextra", "-c",
+                        src, "-o", obj], cwd=ROOT, check=True)
+        hdr = run(["llvm-objdump", "-h", obj])
+        writable = [l.split()[1] for l in hdr.splitlines() if re.search(r"\.(s?data|s?bss)\b", l) and int(l.split()[2], 16) > 0]
+        und = [s for s in run(["llvm-nm", "-u", obj]).split() if s not in allowed and s not in ("U",)]
+        und = [s for s in und if not s.startswith("vec_")]
+        check(f"{src} RV32: freestanding, no writable statics", not writable and not und,
+              f"writable={writable} undefined={und}")
 
 print(f"\n{len(fails)} failure(s)" + (": " + ", ".join(fails) if fails else ""))
 sys.exit(1 if fails else 0)
