@@ -47,7 +47,7 @@ void chain_init(Chain *c, float fs)
     c->autolvl = 1; c->autolvl_g = 1.f; c->dirty = 1;
     c->k_gmin = 0.02f;
     c->k_acc_amt = 1.f; c->acc_fixed = 0; c->k_pan = 0.f; c->mute = 0; c->mute_g = 1.f;
-    c->mode = 0; c->grace_left = (int)(CHAIN_GRACE_S * fs); c->wet_g = 0.f;
+    c->mode = 0; c->grace_left = (int)(CHAIN_GRACE_S * fs); c->wet_g = 0.f; c->fmax_cap = 12000.f;
     c->pan_l = c->pan_r = 1.f; c->thr_p = mx_exp2((-20.f - 40.f * c->k_sens) * 0.33219281f);
     c->a_hp = mx_rc_coef(1.f / (2.f * MX_PI * 30.f), 1.f / fs);
     c->a_fast = mx_rc_coef(0.001f, 1.f / fs);
@@ -86,7 +86,7 @@ void chain_midi(Chain *c, uint8_t st, uint8_t d1, uint8_t d2)
     case 5:   s->k_speed = 4.f - 3.f * v; break;           /* like the unit's CC5: 0 = 4x faster */
     case 102: s->k_a = v; break;       case 103: s->k_d = v; break;
     case 104: s->k_s = v; break;       case 105: s->k_r = v; break;
-    case 106: s->ratio = d2 < 64 ? 50.f : 100.f; s->fmax = 12000.f; break;
+    case 106: s->ratio = d2 < 64 ? 50.f : 100.f; s->fmax = c->fmax_cap; break;
     case 107: m->k_trim = v; break;    case 108: m->lowcut = d2 >= 64; break;
     case 109: m->k_lo = ccpm(d2); break; case 110: m->k_mid = ccpm(d2); break;
     case 111: m->k_hi = ccpm(d2); break; case 112: m->k_gain = v; break;
@@ -217,25 +217,36 @@ const float CHAIN_DEV_DEFAULTS[CHAIN_DEV_CONTROLS] = {
 /* HARM switch: free-running clocks, or the clock divider at x2, x4, x16 (sherman.h) */
 static const int DEV_HARM[4] = { 0, 3, 5, 11 };
 
+void chain_device_set(Chain *c, int i, float v)
+{
+    if (i < 0 || i >= CHAIN_DEV_CONTROLS) return;
+    float q = v == v ? mx_clamp(v, 0.f, 1.f) : CHAIN_DEV_DEFAULTS[i];      /* NaN -> default */
+    switch (i) {
+    case 0:  c->k_sens = q; break;
+    case 1:  c->bd.k_tune = q; break;
+    case 2:  c->bd.k_decay = q; break;
+    case 3:  c->sh.k_in = q; break;
+    case 4:  c->sh.k_f1 = q; break;
+    case 5:  c->sh.k_r1 = q; break;
+    case 6:  c->sh.f[0].morph = q; break;
+    case 7:  c->sh.k_env1 = 2.f * q - 1.f; break;          /* 0.5 = exactly 0 */
+    case 8:  c->sh.harm = DEV_HARM[CHAIN_DEV_CHOICE(q)]; break;
+    case 9:
+        switch (CHAIN_DEV_CHOICE(q)) {                      /* INPUT switch */
+        case 0:  c->mode = 0; c->k_thru = 0.f;  break;     /* 909          */
+        case 1:  c->mode = 0; c->k_thru = 0.5f; break;     /* 909 + DRY    */
+        case 2:  c->mode = 1; c->k_thru = 0.f;  break;     /* AUDIO        */
+        default: c->mode = 2; c->k_thru = 0.f;  break;     /* AUDIO + 909  */
+        }
+        break;
+    case 10: c->k_out = q; break;
+    }
+    c->fmax_cap = CHAIN_DEV_FMAX;                           /* pedal: CPU ceiling */
+    if (c->sh.fmax > CHAIN_DEV_FMAX) c->sh.fmax = CHAIN_DEV_FMAX;
+    c->dirty = 1;
+}
+
 void chain_device_controls(Chain *c, const float *p)
 {
-    float q[CHAIN_DEV_CONTROLS];
-    for (int i = 0; i < CHAIN_DEV_CONTROLS; i++) {
-        float v = p ? p[i] : CHAIN_DEV_DEFAULTS[i];
-        q[i] = v == v ? mx_clamp(v, 0.f, 1.f) : CHAIN_DEV_DEFAULTS[i];   /* NaN -> default */
-    }
-    c->k_sens = q[0];
-    c->bd.k_tune = q[1]; c->bd.k_decay = q[2];
-    c->sh.k_in = q[3]; c->sh.k_f1 = q[4]; c->sh.k_r1 = q[5]; c->sh.f[0].morph = q[6];
-    c->sh.k_env1 = 2.f * q[7] - 1.f;                       /* 0.5 = exactly 0 */
-    c->sh.harm = DEV_HARM[CHAIN_DEV_CHOICE(q[8])];
-    switch (CHAIN_DEV_CHOICE(q[9])) {                       /* INPUT switch */
-    case 0:  c->mode = 0; c->k_thru = 0.f;  break;         /* 909          */
-    case 1:  c->mode = 0; c->k_thru = 0.5f; break;         /* 909 + DRY    */
-    case 2:  c->mode = 1; c->k_thru = 0.f;  break;         /* AUDIO        */
-    default: c->mode = 2; c->k_thru = 0.f;  break;         /* AUDIO + 909  */
-    }
-    c->k_out = q[10];
-    c->sh.fmax = CHAIN_DEV_FMAX;
-    c->dirty = 1;
+    for (int i = 0; i < CHAIN_DEV_CONTROLS; i++) chain_device_set(c, i, p ? p[i] : CHAIN_DEV_DEFAULTS[i]);
 }

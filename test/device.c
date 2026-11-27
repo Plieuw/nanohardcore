@@ -36,6 +36,8 @@ int main(void){
   volatile float zero=0.f; p[3]=zero/zero; chain_device_controls(&c,p); printf("dev_nan_default %.3f\n", c.sh.k_in);
   p[3]=CHAIN_DEV_DEFAULTS[3]; p[9]=1.f; chain_device_controls(&c,p); printf("dev_mode_a909 %d\n", c.mode);
   printf("dev_fmax %.0f\n", c.sh.fmax);
+  chain_midi(&c,0xB0,106,127); printf("dev_fmax_after_cc106 %.0f\n", c.sh.fmax);
+  chain_midi(&c,0xB0,20,127); chain_device_set(&c,3,0.9f); printf("dev_midi_tune_kept %.3f\n", c.bd.k_tune);
   printf("state_bytes %u\n", (unsigned)sizeof(Chain));
   return 0;
 }
