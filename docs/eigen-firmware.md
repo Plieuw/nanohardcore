@@ -54,6 +54,36 @@ bijgewerkt: begin bij de schrijvers van `0x3008a9e0`/`0x3008aa00`
 vervangen door onze processor. De haak naar FX2 blijft als terugval tot dit op hardware
 is bewezen.
 
+**Gevonden (2026-11-27):**
+- **Audiotaak `0x4001140a`**
+  - Neemt een semafoor (`0x3004635e`, wachten = −1), daarna haalt hij blokindices uit een
+    ring van 8 (`index & 7`).
+  - Per index roept hij de **blokverwerker `0x30044580(idx)`** in ITCM aan.
+  - Een tweede pad (`0x400114ee`, vanuit de DMA-interrupt, als een vlag staat) roept
+    dezelfde functie direct aan.
+  - Gemiste blokken gaan via `0x4000f940(n)` naar de overrun-teller (`0x3008aa00`).
+- **Blokverwerker `0x30044580`–`~0x300459xx`** (ITCM, ~5 KB)
+  - Proloog: `jal t0, 0x4000c3a4`, en `fs0`–`fs9` worden bewaard. Argument `a0` = blokindex.
+  - Leest de timer (`0x3004393c`) en houdt min/max/telling bij in de struct op
+    `0x3008a9e0` (+0x24/+0x28/+0x2c/+0x30/+0x34).
+  - Leest en wist I2S-/codecstatus op `0x1860000c`/`0x18600018` (bits 0x2 en 0x40 worden
+    geteld).
+  - Bufferadres = basis + `idx * blokgrootte` (`s8`, gelezen rond `0x30044588`).
+  - Cache-onderhoud met T-Head-instructies (`0x0180000b`, door `llvm-objdump` als
+    `<unknown>` getoond).
+  - Int↔float-conversie: `fcvt.s.w` / `fcvt.w.s rtz` rond `0x30044bf8`–`0x30044f20`.
+  - Daarna de keten-aanroepen (`0x30042780`, `0x30043800`, `0x300426c0`, `0x30048532`, …).
+
+**Twee mogelijke haakpunten:**
+1. De hele blokverwerker vervangen. Dan moeten wij het buffer- en cachewerk en de
+   I2S-status zelf doen.
+2. Na de input-conversie en vóór de output-conversie haken, zodat alleen de keten wordt
+   vervangen.
+
+Optie 2 is veiliger. Volgende stap: de conversielussen rond `0x30044bf8` en `0x30044d22`
+volgen tot de float-buffers en de eerste keten-aanroep, en in emulatie één blok laten
+lopen met een gesimuleerd DMA-buffer.
+
 **Open vragen:**
 - Het sampleformaat aan die grens (int32/float, gescheiden kanalen of interleaved).
 - Wat de native keten doet aan invoertrim, noise gate en uitgangsniveau.
