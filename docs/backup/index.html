@@ -33,6 +33,11 @@
 <a id="download" class="btn" hidden>Download backup</a>
 </div>
 <p><small>De backup bevat Livtra-firmware: deel hem niet publiek en zet hem niet in een repo. USB-code: <a href="https://github.com/jcuhnoio/re-nanocore">re-nanocore</a> (MIT). <a href="../">← nanohardcore</a></small></p>
+<script>
+  // Laat zien als de module niet laadt (oude browser, blokkade), in plaats van een dode pagina.
+  window.addEventListener('error', e => { const x = document.getElementById('error'); x.hidden = false; x.textContent = 'Pagina-fout: ' + e.message; });
+  setTimeout(() => { if (!window.__backupReady) { const x = document.getElementById('error'); x.hidden = false; x.textContent = 'De pagina-code is niet geladen. Ververs de pagina (Ctrl+Shift+R) en gebruik desktop Chrome of Edge.'; } }, 4000);
+</script>
 <script type="module" src="backup.js"></script>
 </body>
 </html>
