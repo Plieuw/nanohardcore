@@ -33,8 +33,9 @@ def build_elf(out):
     for src in DSP + ['firmware/nanocore-1.2/adapter.c', 'firmware/nanocore-1.2/ui.c']:
         o = out / (Path(src).stem + '.o'); objs.append(str(o))
         run('clang', *FLAGS, '-c', str(ROOT / src), '-o', str(o))
-    o = out / 'device_ui_120.o'; objs.append(str(o))
-    run('clang', *FLAGS, '-c', str(HERE / 'device_ui_120.S'), '-o', str(o))
+    for asm in ('device_ui_120.S', 'midi_gate.S'):
+        o = out / (Path(asm).stem + '.o'); objs.append(str(o))
+        run('clang', *FLAGS, '-c', str(HERE / asm), '-o', str(o))
     ld = out / 'device.ld'
     ld.write_text('ENTRY(nc_octave_dispatch)\nSECTIONS { . = %#x; .text : { *(.text*) } '
                   '.rodata : { *(.rodata*) *(.srodata*) } .data : { *(.data*) *(.sdata*) } '
@@ -54,6 +55,21 @@ def build_elf(out):
     return elf.read_bytes(), symbols
 
 
+# Eigen haak (niet in de geteste Octaver-set): native MIDI-berichtfunctie, beide poorten.
+MIDI_HOOK = (0x4002db26, 'efe2fd87')            # jal t0,0x4000c3a4 (register-save-helper)
+
+def midi_hook(stock, symbols):
+    from patch_image import extract_fit
+    from octave_hooks import jal
+    seg = next(s for s in extract_fit(stock)['segments'] if s['load_address'] == 0x40000000)
+    address, guard = MIDI_HOOK
+    offset = seg['offset'] + address - 0x40000000
+    if stock[offset:offset + 4] != bytes.fromhex(guard): raise SystemExit('Onverwachte bytes op de MIDI-haak')
+    return [dict(address=hex(address), offset=offset, expected_hex=guard,
+                 replacement_hex=jal(address, symbols['nc_midi_gate']).hex(),
+                 description='MIDI (USB+BLE): CC/noten naar HARDCORE als dat het FX2-effect is')]
+
+
 def main():
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument('--backup', required=True, type=Path)
@@ -71,7 +87,7 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     elf, symbols = build_elf(args.out)
 
-    hooks = octave_120.patches(stock, symbols) + octave_ui_120.patches(stock, symbols)
+    hooks = octave_120.patches(stock, symbols) + octave_ui_120.patches(stock, symbols) + midi_hook(stock, symbols)
     plan = {'schema_version': 1, 'firmware_version': '1.2', 'elf_sha256': sha(elf), 'patches': hooks}
     image, receipt = package_octave_120.package(stock, elf, plan)
     boot = check_octave_120_boot.check(image, elf)

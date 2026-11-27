@@ -89,6 +89,18 @@ volatile uint32_t nc_octave_fault = 0;          /* 1 = CPU LIMIT, 2 = CHAIN LIMI
 volatile uint32_t nc_hc_stats[6];               /* calls, frames, max ticks, last ticks, inits, resets */
 static Guard guard;
 
+/* ---- MIDI (USB + BLE) via de haak in midi_gate.S ----
+ * De MIDI-taak schrijft in een ringbuffer (één schrijver), de audiotaak leest
+ * (één lezer); zo verandert de DSP-toestand alleen tussen twee blokken. */
+#define FX2_SUBTYPE_BYTE 0x400b0ec1u     /* runtime subtype-array 0x400b0ec0, slot 1 = FX2 */
+#define MIDI_Q 64
+typedef struct { uint8_t st, d1, d2, pad; } MidiEv;
+static MidiEv midi_q[MIDI_Q];
+volatile uint32_t nc_hc_midi_head, nc_hc_midi_tail;
+#define midi_head nc_hc_midi_head
+#define midi_tail nc_hc_midi_tail
+volatile uint32_t nc_hc_midi_count, nc_hc_midi_drop;
+
 #define MAGIC 0x48435231u                       /* "HCR1" */
 typedef struct {
     uint32_t magic;
@@ -98,6 +110,38 @@ typedef struct {
     Chain    chain;
 } State;
 _Static_assert(sizeof(State) <= RING_BYTES, "vergrote ring te klein");
+
+static State *volatile g_state;
+
+/* 1 = bericht overgenomen (CC, noot aan/uit terwijl HARDCORE het FX2-effect is),
+ * 0 = laat de originele firmware het afhandelen (programmawissel, SysEx, klok, ...) */
+int nc_midi_in(uint32_t port, uint32_t status, uint32_t d1, uint32_t d2, uint32_t has_d2)
+{
+    (void)port;
+    uint32_t t = status & 0xf0;
+    if (t != 0xb0 && t != 0x90 && t != 0x80) return 0;
+    State *s = g_state;
+    if (!s || s->magic != MAGIC || *(volatile uint8_t *)FX2_SUBTYPE_BYTE != 8) return 0;
+    uint32_t h = midi_head;
+    if (h - midi_tail >= MIDI_Q) { nc_hc_midi_drop++; return 1; }
+    MidiEv e = { (uint8_t)status, (uint8_t)(d1 & 0x7f), (uint8_t)(has_d2 ? d2 & 0x7f : 0), 0 };
+    midi_q[h % MIDI_Q] = e;
+    __asm__ volatile("" ::: "memory");
+    midi_head = h + 1;
+    nc_hc_midi_count++;
+    return 1;
+}
+
+static void midi_drain(State *s)
+{
+    uint32_t t = midi_tail, h = midi_head;
+    __asm__ volatile("" ::: "memory");
+    for (unsigned n = 0; t != h && n < MIDI_Q; t++, n++) {
+        MidiEv e = midi_q[t % MIDI_Q];
+        chain_midi(&s->chain, e.st, e.d1, e.d2);
+    }
+    midi_tail = t;
+}
 
 static State *state_for(void *native_pitch)
 {
@@ -168,6 +212,7 @@ int nc_octave_pitch_init(float rate, void *native_pitch, void *ring, uint32_t co
     for (unsigned i = 0; i < CHAIN_DEV_CONTROLS; i++) s->controls[i] = CHAIN_DEV_DEFAULTS[i];
     controls(s, 0);
     s->magic = MAGIC;                            /* pas geldig na volledige init */
+    g_state = s;
     nc_hc_stats[4]++;
     *(State **)native_pitch = s;
     return 0;
@@ -208,6 +253,7 @@ void nc_octave_process(void *family, const float *left, const float *right,
     if (bytes[FAMILY_SUBTYPE] != 8) { restart(s); nc_hc_stats[5]++; }   /* net gekozen */
     bytes[FAMILY_SUBTYPE] = 8;
     controls(s, p);
+    midi_drain(s);
 
     float mono[32], ol[32], or_[32];
     for (uint32_t off = 0; off < frames; off += 32) {
