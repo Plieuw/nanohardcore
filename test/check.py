@@ -102,6 +102,8 @@ check("device bank: HARM switch top = x16 (index 11)", v["dev_harm_max"] == 11, 
 check("device bank: NaN control falls back to default", abs(v["dev_nan_default"] - 0.333) < 1e-3, f"{v['dev_nan_default']}")
 check("device bank: INPUT switch top = AUDIO+909", v["dev_mode_a909"] == 2, f"{v['dev_mode_a909']:.0f}")
 check("device bank: Sherman cutoff ceiling 8 kHz (CPU)", v["dev_fmax"] <= 8000, f"{v['dev_fmax']:.0f} Hz")
+check("device bank: CC 106 cannot lift the pedal ceiling", v["dev_fmax_after_cc106"] <= 8000, f"{v['dev_fmax_after_cc106']:.0f} Hz")
+check("device bank: moving one knob keeps MIDI-set values", abs(v["dev_midi_tune_kept"] - 1.0) < 1e-6, f"{v['dev_midi_tune_kept']}")
 check("state fits the 65,536-byte native ring", v["state_bytes"] < 65536, f"{v['state_bytes']:.0f} bytes")
 
 print(f"\n{len(fails)} failure(s)" + (": " + ", ".join(fails) if fails else ""))

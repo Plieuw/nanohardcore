@@ -11,7 +11,7 @@ let mode = 'install', busy = false, critical = false, imported = null, backupURL
 const load = f => fetch('./' + f).then(r => { if (!r.ok) throw Error('Kon de patch niet laden; ververs de pagina.'); return r.json(); });
 const manifestPromise = load('hardcore-1.2.json');
 // eerdere uitgaven: worden herkend en via de opgeslagen stock-backup geüpgraded of teruggezet
-const OLDER = ['hardcore-1.2-r1.json', 'hardcore-1.2-r2.json'];
+const OLDER = ['hardcore-1.2-r1.json', 'hardcore-1.2-r2.json', 'hardcore-1.2-r3.json'];
 const olderPromise = Promise.all(OLDER.map(load));
 manifestPromise.catch(() => {}); olderPromise.catch(() => {});
 

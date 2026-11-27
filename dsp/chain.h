@@ -28,6 +28,7 @@ typedef struct {
      * then cross-fades in. A preset that has this effect enabled therefore cannot load
      * the CPU before the stock firmware (USB/MIDI, updater entry) is fully up. */
     int   grace_left; float wet_g;
+    float fmax_cap;      /* Sherman cutoff ceiling allowed on this platform (CC 106 respects it) */
     float hp_x1, hp_y1, a_hp;
     float fast, slow, a_fast, a_slow;
     int   window, holdoff, armed;
@@ -50,6 +51,8 @@ void chain_process(Chain *c, const float *in, float *outL, float *outR, uint32_t
 extern const char *const CHAIN_DEV_NAMES[CHAIN_DEV_CONTROLS];
 extern const float CHAIN_DEV_DEFAULTS[CHAIN_DEV_CONTROLS];
 void chain_device_controls(Chain *c, const float *p);   /* p: 11 values 0..1 */
+/* one bank control; leaves everything else (e.g. values set over MIDI) alone */
+void chain_device_set(Chain *c, int index, float value);
 
 /* NanoCore delegated-effect ABI (re-nanocore docs/custom-fx-patch-site.txt) */
 void nc_entry(void *state, const float *in_l, const float *in_r, float *out_l, float *out_r,

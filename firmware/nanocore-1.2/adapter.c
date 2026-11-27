@@ -164,7 +164,10 @@ static void controls(State *s, const float *p)
         changed |= next[i] != s->controls[i];
     }
     if (!changed) return;
-    chain_device_controls(&s->chain, next);
+    /* alleen gewijzigde knoppen toepassen: waarden die via MIDI zijn gezet blijven staan
+     * tot de bijbehorende pedalknop zelf beweegt */
+    for (unsigned i = 0; i < CHAIN_DEV_CONTROLS; i++)
+        if (!s->valid || next[i] != s->controls[i]) chain_device_set(&s->chain, (int)i, next[i]);
     for (unsigned i = 0; i < CHAIN_DEV_CONTROLS; i++) s->controls[i] = next[i];
     s->valid = 1;
 }
