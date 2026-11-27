@@ -69,3 +69,4 @@ $('start').onclick = () => run(start);
 $('connect').onclick = () => run(async () => read(await navigator.usb.requestDevice({filters: [USB_FILTER]})));
 if (!ok()) status('Niet ondersteund', 'Gebruik desktop Chrome of Edge (WebUSB + Web MIDI).');
 controls();
+window.__backupReady = true;
