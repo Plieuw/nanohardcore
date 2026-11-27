@@ -14,6 +14,7 @@ typedef struct {
     float k_trim;     /* 0..1 : TRIM R164 (line: -15..+45 dB) */
     int   lowcut;     /* SW2: U13A 75 Hz 3rd order */
     float k_lo, k_mid, k_hi;   /* -1..1 (centre detent 0) : R434 / R391 / R341 50kB */
+    float eq_lo, eq_mid, eq_hi; int eq_built;   /* EQ-stand van de laatste mc_build */
     float k_gain;     /* 0..1 : GAIN R605 50k(G), unity at 0.75 */
     float k_main;     /* 0..1 : MAIN MIX, unity at 0.75 */
     /* derived */

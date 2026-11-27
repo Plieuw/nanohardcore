@@ -172,7 +172,7 @@ void chain_process(Chain *c, const float *in, float *outL, float *outR, uint32_t
         float x = in ? in[i] : 0.f;
         float acc = detect(c, x);
         if (acc >= 0.f) {                               /* every hit: 909 + gate on */
-            if (c->mode == 0) bd909_trigger(&c->bd, (c->acc_fixed ? 1.f : acc) * c->k_acc_amt);
+            if (c->mode != 1) bd909_trigger(&c->bd, (c->acc_fixed ? 1.f : acc) * c->k_acc_amt);
             sherman_gate(&c->sh, 1);
             c->gate = 1; c->gate_hold = (int)(c->k_gmin * c->fs);
             c->trig_count++;
@@ -181,7 +181,8 @@ void chain_process(Chain *c, const float *in, float *outL, float *outR, uint32_t
             else if (c->notes == 0 && c->fast < c->thr_p * 0.25f) { c->gate = 0; sherman_gate(&c->sh, 0); }
         }
         float v = c->mode == 0 ? bd909_tick(&c->bd) + c->k_thru * x * VOLT_PER_FS
-                               : x * VOLT_PER_FS * AUDIO_IN_GAIN;     /* AUDIO: 909 bypassed */
+                : c->mode == 1 ? x * VOLT_PER_FS * AUDIO_IN_GAIN            /* AUDIO: 909 bypassed */
+                               : bd909_tick(&c->bd) + x * VOLT_PER_FS * AUDIO_IN_GAIN;  /* AUDIO+909 */
         v = sherman_tick(&c->sh, v);
         v = mackie_tick(&c->mk, v * LINE_MAX * 2.f * c->k_line);
         float o = mx_clamp(v * OUT_SCALE * c->k_out * c->autolvl_g, -3.f, 3.f);
@@ -206,22 +207,33 @@ void nc_entry(void *state, const float *in_l, const float *in_r, float *out_l, f
     if (output_mode) *output_mode = out_r ? 1 : 0;
 }
 
-/* ---- stock-firmware parameter bank (12 controls, 0..1) ---- */
+/* ---- stock-firmware parameter bank (11 controls, 0..1) ---- */
 const char *const CHAIN_DEV_NAMES[CHAIN_DEV_CONTROLS] = {
-    "SENS", "TUNE", "DECAY", "DRIVE", "FREQ1", "RESO1", "L-B-H1", "ENV>F1", "HARM", "TRIM", "MID", "LEVEL" };
+    "SENS", "TUNE", "DECAY", "DRIVE", "FREQ", "RESO", "L-B-H", "ENV>F", "HARM", "INPUT", "LEVEL" };
 const float CHAIN_DEV_DEFAULTS[CHAIN_DEV_CONTROLS] = {
-    0.5f, 0.5f, 0.5f, 0.333f, 0.75f, 0.35f, 0.0f, 0.75f, 0.0f, 0.25f, 0.5f, 0.8f };
+    0.5f, 0.5f, 0.5f, 0.333f, 0.75f, 0.35f, 0.0f, 0.75f, 0.0f, 0.0f, 0.8f };
+/* HARM switch: free-running clocks, or the clock divider at x2, x4, x16 (sherman.h) */
+static const int DEV_HARM[4] = { 0, 3, 5, 11 };
 
 void chain_device_controls(Chain *c, const float *p)
 {
     float q[CHAIN_DEV_CONTROLS];
-    for (int i = 0; i < CHAIN_DEV_CONTROLS; i++) q[i] = mx_clamp(p ? p[i] : CHAIN_DEV_DEFAULTS[i], 0.f, 1.f);
+    for (int i = 0; i < CHAIN_DEV_CONTROLS; i++) {
+        float v = p ? p[i] : CHAIN_DEV_DEFAULTS[i];
+        q[i] = v == v ? mx_clamp(v, 0.f, 1.f) : CHAIN_DEV_DEFAULTS[i];   /* NaN -> default */
+    }
     c->k_sens = q[0];
     c->bd.k_tune = q[1]; c->bd.k_decay = q[2];
     c->sh.k_in = q[3]; c->sh.k_f1 = q[4]; c->sh.k_r1 = q[5]; c->sh.f[0].morph = q[6];
     c->sh.k_env1 = 2.f * q[7] - 1.f;                       /* 0.5 = exactly 0 */
-    c->sh.harm = (int)(q[8] * 11.f + 0.5f);
-    c->mk.k_trim = q[9]; c->mk.k_mid = 2.f * q[10] - 1.f;  /* 0.5 = flat */
-    c->k_out = q[11];
+    c->sh.harm = DEV_HARM[CHAIN_DEV_CHOICE(q[8])];
+    switch (CHAIN_DEV_CHOICE(q[9])) {                       /* INPUT switch */
+    case 0:  c->mode = 0; c->k_thru = 0.f;  break;         /* 909          */
+    case 1:  c->mode = 0; c->k_thru = 0.5f; break;         /* 909 + DRY    */
+    case 2:  c->mode = 1; c->k_thru = 0.f;  break;         /* AUDIO        */
+    default: c->mode = 2; c->k_thru = 0.f;  break;         /* AUDIO + 909  */
+    }
+    c->k_out = q[10];
+    c->sh.fmax = CHAIN_DEV_FMAX;
     c->dirty = 1;
 }

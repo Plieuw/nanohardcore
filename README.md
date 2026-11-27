@@ -181,20 +181,46 @@ Getest (`test/ccmap.c`): elk van de 46 CC's verandert de output aantoonbaar; CC 
 
 De Mackie op 2× kost nu ~1 550 instructies/sample (EQ-circuit ~710, clippers ~510, halfband ~330). Code: 21 KB, state: 5,6 KB.
 
-## Op de pedal: firmware 1.2-route (in voorbereiding)
+## Op de pedal: firmware 1.2 (experimenteel)
 
-De route volgt [re-nanocore](https://github.com/jcuhnoio/re-nanocore) (MIT) voor de officiële firmware **1.2** (48 kHz). Hun Octaver draait daarmee al op hardware: een reset-shim kopieert een aangehangen payload naar vrij RAM (na de native BSS), en de native FX2/PITCH-slot (subtype 8) roept de adapter aan. De state gebruikt de vergrote 64 KB-ring van die slot. Onze keten past ruim: ~22 KB code, 3,8 KB state.
+**Installeren:** https://plieuw.github.io/nanohardcore/install/ (desktop Chrome/Edge, ook op een Chromebook). Eerst een backup maken kan via https://plieuw.github.io/nanohardcore/backup/ (alleen lezen).
 
-**Veiligheid (niet bricken)**
-- **Herstel:** loopt via de stock-updater (MIDI `F0 7D 44 46 55 01 F7` → Lupgrader → raw DFU). Volledige backup eerst; alleen gewijzigde sectoren schrijven; volledige readback-verificatie vóór de reboot.
-- **Opstartpad:** gelijk aan het op hardware bewezen 1.2-pakket van re-nanocore. Onze init is minimaal: ~55 000 instructies, geen libm, de shaper-tabel is constant (`tools/gen_shaper.c`).
-- **Opstart-grace:** na de init geeft de keten 3 s de input droog door en fadet dan in. Zelfs een opgeslagen preset met dit effect aan belast de CPU niet voordat USB/MIDI (en dus de updater) bereikbaar is.
-- **CPU-bewaking:** de overload-guard van de adapter latcht bypass bij overschrijding van het budget. Gemeten op de pedal (octaver-tests): ~360–420 instructies/µs. Onze keten kost standaard ~3 100 instr/sample, ~40% van het 48 kHz-budget.
-- **Restrisico:** als een image helemaal niet opstart, is er geen bekende herstelroute buiten de applicatie. Daarom blijft het opstartpad gelijk aan het bewezen pakket.
+De keten zit als **HARDCORE** in het FX2/PITCH-slot (de plek van de Octaver). De rest van de firmware blijft origineel: BLE-MIDI, USB-MIDI, presets en de updater.
 
-**12 knoppen via de stock-firmware** (`CHAIN_DEV_*` in `chain.c`): SENS · TUNE · DECAY · DRIVE · FREQ1 · RESO1 · L-B-H1 · ENV>F1 · HARM · TRIM · MID · LEVEL. ENV>F1 en MID: 0,5 = exact nul/vlak. De rest staat op vaste waarden. De eigen UI en de volledige CC-map volgen later.
+**Hoe:** de route van [re-nanocore](https://github.com/jcuhnoio/re-nanocore) (MIT) voor hun op hardware geteste 1.2-Octaver.
+- Er komt een reset-shim bij die de payload achter de native BSS kopieert.
+- Vier haken in het PITCH-slot: dispatch, init, reset en shift.
+- De ring wordt vergroot van 8 naar 64 KB.
+- Zeven UI-haken voor de naam, de 11 knoppen, de waardeweergave en de defaults.
+- De heap verschuift en de FIT-hashes worden bijgewerkt.
 
-**Input-modus (CC 3):** TRIGGER (de input vuurt de 909) of AUDIO (909 overgeslagen, de input zelf gaat door Sherman en Mackie; hits gaten nog steeds de ADSR).
+Onze native wijzigingen zijn een **strikte deelverzameling** van die van de geteste Octaver-image: alles wat wij veranderen, veranderen zij ook. Wij laten UniVibe en de diagnosehaak weg. De stock-hash van de gebackupte pedal is gelijk aan die van hun geteste 1.2.
+
+| controle | resultaat |
+|---|---|
+| payload | 28 KB code; 3,8 KB state in de 64 KB-ring |
+| reset-shim in Unicorn (re-nanocore `check_octave_120_boot`) | payload exact gekopieerd, native entry bereikt, registers behouden, BSS-clear raakt payload niet |
+| functionele emulatie van de gepatchte image (`firmware/nanocore-1.2/emulate.py`) | init 85k instructies (~0,24 ms); 3 s exact droog, daarna verwerkt; bewaking latcht bypass en toont CPU LIMIT |
+| CPU (RV32, 360 instr/µs zoals gemeten op de pedal) | standaardknoppen gem. 36%, zwaarste blok 43%; zwaarste knopstand 52,5% (grens 65%) |
+| browserinstaller tegen de backup + nagebootste Lupgrader | 8 sectoren geschreven, exact gelijk aan de build; terugzetten geeft exact stock; 1.10 en een beschadigde image geweigerd |
+
+**Pedalknoppen:** SENS · TUNE · DECAY · DRIVE · FREQ · RESO · L-B-H · ENV>F (midden = 0) · HARM (FREE/x2/x4/x16) · INPUT (909 / 909+DRY / AUDIO / AUD+909) · LEVEL. Het Sherman-filterplafond op de pedal is 8 kHz (`CHAIN_DEV_FMAX`), zodat de zwaarste stand binnen het budget blijft.
+
+**Bouwen** (lokaal; de backup komt niet in de repo):
+`python3 firmware/nanocore-1.2/build.py --backup nanocore-1.2-stock-backup.bin --re-nanocore PAD --manifest docs/install/hardcore-1.2.json`
+en daarna `python3 firmware/nanocore-1.2/emulate.py PAD`.
+
+Het manifest bevat onze code plus 78 bytes aan originele instructies op de haakplekken (als controle) en bijgewerkte hashes; geen vendorimage.
+
+**Eerste hardwaretest**
+1. Bewaar `nanocore-1.2-stock-backup.bin`.
+2. Installeer, zonder audio aangesloten.
+3. Controleer na de herstart dat de pedal normaal opstart en dat USB- en BLE-MIDI werken.
+4. Maak een preset met alleen HARDCORE aan, op laag volume. Na 3 s droog komt de keten in.
+5. Probeer de knoppen en noteer het als er CPU LIMIT verschijnt.
+6. Test "Origineel terugzetten".
+
+**Restrisico:** start een image niet op, dan is de enige bekende herstelroute de updater. Die opent via de draaiende app; of de bootloader zelf DFU aanbiedt, is niet bekend. Dat risico wordt kleiner doordat het opstartpad gelijk is aan het geteste pakket en in emulatie is gecontroleerd.
 
 ## Integratie op de NanoCore: wat nog moet
 - Het bewezen patch-slot (Velvet Vibrato) is 1 392 bytes. Deze keten is ~16 KB code, dus die past daar niet in. Nodig is een grotere code-plek: het FIT-segment uitbreiden (de OS-partitie heeft ~124 KB rekenkundige ruimte, maar die is nog niet als uitvoerbaar gemapt bevestigd) of een gedoneerde effectroutine.

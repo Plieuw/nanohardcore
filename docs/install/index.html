@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nanohardcore · installeren op NanoCore 1.2</title>
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;max-width:680px;margin:2rem auto;padding:0 1rem;background:#111;color:#eee}
+  h1{font-size:1.4rem} .box{background:#1c1c1c;border:1px solid #333;border-radius:8px;padding:1rem;margin:1rem 0}
+  button,a.btn{font:inherit;padding:.6rem 1rem;border-radius:6px;border:0;background:#e8562a;color:#fff;cursor:pointer;text-decoration:none;display:inline-block;margin:.25rem 0}
+  button.sec{background:#333} button:disabled{background:#444;color:#888;cursor:default}
+  [hidden]{display:none!important} progress{width:100%} #error{color:#ff7a7a}
+  pre{white-space:pre-wrap;word-break:break-all;background:#000;padding:.5rem;border-radius:4px;font-size:.8rem}
+  .warn{border-left:3px solid #e8562a;padding-left:.75rem} ol li{margin:.3rem 0}
+</style>
+</head>
+<body>
+<h1>HARDCORE op je NanoCore <small>(firmware 1.2, experimenteel)</small></h1>
+<p>Zet <b>909 → Sherman → Mackie</b> in het FX2-slot van de Octaver/PITCH. De rest van de firmware blijft origineel, ook BLE-MIDI, USB en de updater.</p>
+<div class="box warn">
+  <p><b>Experimenteel, nog niet op hardware getest.</b> De installatie gebruikt dezelfde opstartmethode en dezelfde haakpunten als de op hardware geteste 1.2-Octaver van <a href="https://github.com/jcuhnoio/re-nanocore">re-nanocore</a>, en is in emulatie getest tegen exact deze firmware. Alleen een pedal met de originele 1.2 wordt geaccepteerd; al het andere wordt geweigerd zonder te schrijven.</p>
+</div>
+<div class="box">
+<ol>
+  <li>Bewaar je <b>backupbestand</b> (<code>nanocore-1.2-stock-backup.bin</code>) op een veilige plek. De installatie maakt er ook zelf een.</li>
+  <li>Haal koptelefoon en audiokabels eruit en sluit ToneCommand.</li>
+  <li>Klik <b>Installeren</b>, sta MIDI toe en kies daarna bij <b>Verbind bootloader</b> de Lupgrader. Chromebook: bij "verbinden met Linux?" op het kruisje klikken.</li>
+  <li>Laat USB en stroom aangesloten tot er "geïnstalleerd" staat (ongeveer 2 minuten).</li>
+</ol>
+<label><input type="checkbox" id="audio"> Audiokabels en koptelefoon zijn los, ToneCommand is dicht</label><br>
+<button id="install">Installeren</button>
+<button id="connect" class="sec">Verbind bootloader</button>
+<button id="recovery" hidden>Herstel onderbroken upload</button>
+<progress id="progress" max="100" value="0"></progress>
+<p><b id="status">Klaar om te beginnen</b><br><span id="detail"></span></p>
+<p id="error" hidden></p>
+<p>
+  <button id="restore" class="sec">Origineel terugzetten</button>
+  <button id="importBackup" class="sec">Backupbestand gebruiken</button>
+  <a id="backupLink" class="btn" hidden>Download backup</a>
+</p>
+<input id="backupFile" type="file" accept=".bin" hidden>
+<details><summary>Wat de pagina ziet</summary><pre id="log"></pre></details>
+</div>
+<div class="box">
+<p><b>Na het installeren:</b> kies <b>HARDCORE</b> in FX2 en zet de andere effecten van dat preset uit. Na het aanzetten is het effect de eerste 3 seconden droog. Gaat de processor over zijn budget, dan schakelt het effect zichzelf veilig naar bypass en staat er <b>CPU LIMIT</b> op het scherm; zet de pedal dan uit en aan.</p>
+<p><b>Knoppen:</b> SENS · TUNE · DECAY · DRIVE · FREQ · RESO · L-B-H · ENV&gt;F (midden = 0) · HARM (FREE/x2/x4/x16) · INPUT (909 / 909+DRY / AUDIO / AUD+909) · LEVEL</p>
+</div>
+<p><small>USB-, patch- en opslagcode: <a href="https://github.com/jcuhnoio/re-nanocore">re-nanocore</a> (MIT). De patch bevat alleen gewijzigde bytes en onze eigen code; je backup blijft in je browser. <a href="../">← nanohardcore</a></small></p>
+<script>
+  window.addEventListener('error', e => { const x = document.getElementById('error'); x.hidden = false; x.textContent = 'Pagina-fout: ' + e.message; });
+  setTimeout(() => { if (!window.__installReady) { const x = document.getElementById('error'); x.hidden = false; x.textContent = 'De pagina-code is niet geladen. Ververs (Ctrl+Shift+R) en gebruik desktop Chrome of Edge.'; } }, 4000);
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
