@@ -11,7 +11,7 @@ let mode = 'install', busy = false, critical = false, imported = null, backupURL
 const load = f => fetch('./' + f).then(r => { if (!r.ok) throw Error('Kon de patch niet laden; ververs de pagina.'); return r.json(); });
 const manifestPromise = load('hardcore-1.2.json');
 // eerdere uitgaven: worden herkend en via de opgeslagen stock-backup geüpgraded of teruggezet
-const OLDER = ['hardcore-1.2-r1.json', 'hardcore-1.2-r2.json', 'hardcore-1.2-r3.json'];
+const OLDER = ['hardcore-1.2-r1.json', 'hardcore-1.2-r2.json', 'hardcore-1.2-r3.json', 'hardcore-1.2-r4.json'];
 const olderPromise = Promise.all(OLDER.map(load));
 manifestPromise.catch(() => {}); olderPromise.catch(() => {});
 
@@ -130,7 +130,7 @@ async function upload(device) {
     await put('pending', {...pending, active: false, receipt});
     log(JSON.stringify(receipt));
     status(mode === 'install' ? 'HARDCORE is geïnstalleerd.' : mode === 'restore' ? 'Originele firmware teruggezet.' : 'Vorige firmware hersteld.',
-      mode === 'install' ? 'Wacht tot de pedal opnieuw is opgestart. Kies HARDCORE in FX2 (de plek van Octaver/PITCH), zet de andere effecten uit, sluit audio aan op laag volume. De eerste 3 s na het aanzetten is het effect droog.'
+      mode === 'install' ? 'Wacht tot de pedal opnieuw is opgestart en sluit audio aan op laag volume. De eerste 3 s is alles nog origineel; daarna neemt HARDCORE de keten, het scherm en de twee knoppen over.'
                          : 'Elke byte is gecontroleerd. Wacht tot de pedal opnieuw is opgestart.');
     $('audio').checked = false;
   } finally { await t.close(); }
