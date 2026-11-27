@@ -9,12 +9,13 @@ const MANIFESTS = ['patch.json','patch-1.11.json','patch-1.12.json','octave-1.12
   .map(p => 'https://jcuhnoio.github.io/re-nanocore/' + p);
 let busy = false;
 
+const log = t => { $('log').textContent += t + '\n'; };
 const status = (t, d = '') => { $('status').textContent = t; $('detail').textContent = d; };
 const ok = () => !!navigator.usb && !!navigator.requestMIDIAccess && isSecureContext;
 
 function controls() {
   const ready = !busy && ok() && $('audio').checked;
-  $('start').disabled = !ready; $('connect').disabled = !ready;
+  $('start').disabled = !ready; $('connect').disabled = !(!busy && ok());
 }
 
 async function run(fn) {
@@ -32,18 +33,28 @@ async function start() {
   if (boot.length === 1) return read(boot[0]);
   status('Verbinden met NanoCore', 'Sta MIDI-toegang toe, inclusief system-exclusive.');
   const midi = await navigator.requestMIDIAccess({sysex: true});
-  const ports = [...midi.outputs.values()].filter(p => /nanocore/i.test(p.name));
-  if (ports.length > 1) throw Error('Sluit maar één NanoCore aan.');
+  const outs = [...midi.outputs.values()];
+  log('MIDI-uitgangen: ' + (outs.length ? outs.map(p => '"' + p.name + '"').join(', ') : 'geen'));
+  let ports = outs.filter(p => /nanocore|livtra/i.test(p.name));
+  if (ports.length === 0 && outs.length === 1) ports = outs;          // enige poort: die gebruiken
+  if (ports.length > 1) throw Error('Meer dan één mogelijke NanoCore-poort gevonden; sluit maar één pedal aan.');
   if (ports.length === 1) {   // stock-updater openen (Lupgrader); dit wist niets
     await ports[0].open(); ports[0].send([0xf0, 0x7d, 0x44, 0x46, 0x55, 0x01, 0xf7]);
-    await new Promise(r => setTimeout(r, 1200)); await ports[0].close();
+    log('Update-commando verstuurd naar "' + ports[0].name + '".');
+    await new Promise(r => setTimeout(r, 1500)); try { await ports[0].close(); } catch {}
+    status('Kies de bootloader', 'Klik "Verbind bootloader" en kies Livtra Lupgrader. Het scherm van de pedal kan nu zwart of stil zijn: dat is normaal.');
+  } else {
+    status('Geen NanoCore-MIDI gevonden', 'Staat de pedal al in updatemodus (bijv. na een eerdere poging)? Klik dan "Verbind bootloader". Anders: USB eruit, pedal aan, ToneCommand dicht, opnieuw Start.');
   }
-  $('connect').hidden = false;
-  status('Kies de bootloader', 'Klik "Verbind bootloader" en kies Livtra Lupgrader.');
 }
 
 async function read(device) {
-  const t = await WebUSBTransport.open(device);
+  let t;
+  try { t = await WebUSBTransport.open(device); }
+  catch (e) {
+    if (/access denied|security/i.test(e.message)) throw Error('Toegang geweigerd tot de bootloader. Chromebook: zet Lupgrader/NanoCore uit bij Instellingen → Ontwikkelaars → Linux → USB-apparaten beheren, sluit andere NanoCore-tabbladen, en probeer opnieuw "Verbind bootloader". (' + e.message + ')');
+    throw e;
+  }
   try {
     const dfu = new RawOS(t, {onProgress: ({completed, total}) => {
       $('progress').value = total ? completed / total * 100 : 0;
@@ -66,7 +77,13 @@ async function read(device) {
 
 $('audio').onchange = controls;
 $('start').onclick = () => run(start);
-$('connect').onclick = () => run(async () => read(await navigator.usb.requestDevice({filters: [USB_FILTER]})));
+$('connect').onclick = () => run(async () => {
+  let dev;
+  try { dev = await navigator.usb.requestDevice({filters: [USB_FILTER]}); }
+  catch { throw Error('Geen Livtra Lupgrader gekozen of gevonden. Staat er niets in het lijstje, dan staat de pedal niet in updatemodus: klik eerst Start.'); }
+  log('Bootloader gekozen: ' + (dev.productName || 'Lupgrader') + ' (33c3:6678).');
+  return read(dev);
+});
 if (!ok()) status('Niet ondersteund', 'Gebruik desktop Chrome of Edge (WebUSB + Web MIDI).');
 controls();
 window.__backupReady = true;
