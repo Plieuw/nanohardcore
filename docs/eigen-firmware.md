@@ -84,6 +84,36 @@ Optie 2 is veiliger. Volgende stap: de conversielussen rond `0x30044bf8` en `0x3
 volgen tot de float-buffers en de eerste keten-aanroep, en in emulatie één blok laten
 lopen met een gesimuleerd DMA-buffer.
 
+**Stap 2 (2026-11-27, voortgang):**
+- **DMA-bufferformaat:** interleaved stereo **int32**, verwerkt in brokken van `0x200` bytes
+  (64 frames).
+- **Brokkenlus:** begint op `0x300447b0`. De teller staat op `sp+0x14` (+0x40 per brok)
+  en loopt tot `s1` = de helft van de blokgrootte. Twee bufferpointers: `s6` en `s10`.
+  Sprong terug naar de luskop vanaf `0x30044be8`.
+- **Twee paden per brok**, gekozen met vlaggen op `0x30103130`-achtig (`lbu` rond
+  `0x30044bb0`):
+  - **Pad 1:** `0x30046900` = `memcpy(s6, s10, 0x200)`, dan helper `0x4001068e`. Dat is een
+    kleine reset/clear-helper die `0x400271a2` en `0x400100ba` aanroept, **niet** de
+    effectketen. Daarna, voorwaardelijk, `0x4001042e(s10)`.
+  - **Pad 2:** per frame int32 → float (`fcvt.s.w`), aanroep `0x300471a2(state, &L, &R, 1)`,
+    terug naar int32 met `fcvt.w.s rtz`, dan `0x400100ba`. Dit is een
+    per-sample-trap; de functie ervan is nog onbekend.
+- **De eigenlijke Livtra-keten** zit waarschijnlijk verder in de functie: vanaf `0x30044c48`
+  tot `0x300457c8`, met de conversies rond `0x30044d22`/`0x30044dec`/`0x30044f02` en de
+  aanroepen `0x300426c0`, `0x30043800`, `0x30042780`, `0x30048532`.
+
+**Volgende sessie:**
+1. Vanaf `0x30044c48` het pad volgen tot de float-buffers die de keten in en uit gaan.
+2. Het haakpunt kiezen.
+3. In `emulate.py` één blok draaien met een gesimuleerd DMA-buffer (seg0 + seg3 laden,
+   I2S-registers `0x186000xx` als RAM mappen).
+
+Werkwijze voor het lezen: `tools`-scripts staan niet in de repo. Maak ELF-wrappers van
+de segmenten (laadadres als `.text`) en disassembleer met
+`llvm-objdump -d --mattr=+m,+a,+f,+d,+c`. T-Head-instructies verschijnen als `<unknown>`.
+Let op: `jalr`-labels in een seg0-disassembly zijn relatief aan `0x30040000` en lopen
+modulo 2^32 door naar seg3 (`.text+0xffd068e` = `0x4001068e`).
+
 **Open vragen:**
 - Het sampleformaat aan die grens (int32/float, gescheiden kanalen of interleaved).
 - Wat de native keten doet aan invoertrim, noise gate en uitgangsniveau.
