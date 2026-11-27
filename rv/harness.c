@@ -11,7 +11,7 @@ void entry(void);
 void _start(void){ __asm__ volatile("li sp, 0x00800000\n call entry\n 1: ebreak\n j 1b"); }
 void entry(void){
   if (mode == 0) {
-    chain_init(&C, 44100.f); C.grace_left = 0; C.wet_g = 1.f;
+    chain_init(&C, 48000.f); C.grace_left = 0; C.wet_g = 1.f;
     if (scenario == 1) {  /* worst case: both filters at max cutoff (20 clock edges / sample) */
       chain_midi(&C,0xB0,25,127); chain_midi(&C,0xB0,29,127); chain_midi(&C,0xB0,88,127); chain_midi(&C,0xB0,26,100);
     }

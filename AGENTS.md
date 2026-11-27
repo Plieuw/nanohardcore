@@ -13,7 +13,7 @@ ontwerp en `docs/` voor de Pages-site.
   - Faalt een check, pas dan de code aan, niet de grens.
   - Verander je bewust een bewering, wijzig dan de grens, de README en `docs/index.html` in dezelfde PR, met de meting erbij.
 - **Bewijs met een meting.** Een PR die het geluid verandert, laat zien wat er gemeten is (een tabel in de PR-tekst, en waar zinnig een nieuwe check in `test/check.py`). Vertrouw niet op het spectrogram alleen: kleurschalen verzadigen.
-- **CPU telt.** Draai `make rv` en zet de MIPS-regels in de PR. Elke instructie per sample telt mee voor de 44,1 kHz-callback op de pedal.
+- **CPU telt.** Draai `make rv` en zet de MIPS-regels in de PR. Elke instructie per sample telt mee voor de 48 kHz-callback op de pedal (firmware 1.2: 64 frames per blok, 1,33 ms).
 
 ## Codeconventies (`dsp/`)
 - Freestanding C99 voor RV32IMAFDC/ilp32d: **geen libm, geen malloc, geen schrijfbare statics**. Wiskunde staat in `mathx.h`, alle state zit in de structs.

@@ -32,7 +32,7 @@ for scen in (0,1,2):
     tot=0; worst=0; nb=60
     for b in range(nb):
         c,e,pc=run(1,scen); tot+=c; worst=max(worst,c)
-    print(f"{names[scen]:32s} init {0}  avg {tot/nb/64:7.0f} instr/sample  worst block {worst/64:7.0f}/sample  -> {tot/nb/64*44100/1e6:6.1f} MIPS   ({e[:30]})")
+    print(f"{names[scen]:32s} init {0}  avg {tot/nb/64:7.0f} instr/sample  worst block {worst/64:7.0f}/sample  -> {tot/nb/64*48000/1e6:6.1f} MIPS   ({e[:30]})")
 c,e,pc=run(0,0)
 print("stop pc", hex(pc))
 import struct
