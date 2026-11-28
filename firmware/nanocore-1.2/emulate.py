@@ -347,7 +347,7 @@ def d1(uc, addr, size, _):
     if addr == STUB:
         sent.append(bytes(uc.mem_read(uc.reg_read(r.UC_RISCV_REG_A0), uc.reg_read(r.UC_RISCV_REG_A1))))
     elif addr == 0x4000e65e:
-        finds.append(bytes(uc.mem_read(uc.reg_read(r.UC_RISCV_REG_A0), 4)).split(b'\0')[0].decode())
+        finds.append(bytes(uc.mem_read(uc.reg_read(r.UC_RISCV_REG_A0), 16)).split(b'\0')[0].decode())
         ret(uc, PART)
     elif addr == 0x4000e6ac:
         off, buf, n = (uc.reg_read(getattr(r, 'UC_RISCV_REG_A%d' % k)) for k in (1, 2, 3))
@@ -362,6 +362,22 @@ tms = 3300
 for k in range(40):
     tms += 40; ui_at(tms)
     if spl(0) == 2: break
+spl_sent = list(sent); sent.clear()
+pre = [mi(0, v) for v in (0x50, 0x52, 0x45)]               # P R E = presets
+for k in range(40):
+    tms += 40; ui_at(tms)
+    if spl(0) == 2 and len(sent) >= 7: break
+def unpack7(b):
+    o = []; i = 0
+    while i < len(b):
+        h = b[i]; i += 1
+        for k in range(7):
+            if i >= len(b): break
+            o.append(((h >> k) & 1) << 7 | b[i]); i += 1
+    return bytes(o)
+pre_tag = unpack7(sent[0][5:-1])[:4] if sent else b''
+pre_name = finds[-1] if finds else ''
+sent = spl_sent
 for h in hd: u.hook_del(h)
 (ROOT / 'build/spl_msgs.json').write_text(json.dumps([m.hex() for m in sent]))
 js = subprocess.run(['node', '-e', """
@@ -377,7 +393,8 @@ res['fase_d1'] = dict(find_name=finds[:1], ble_trigger=ble_req, usb_trigger=usb_
                       state=spl(0), chunks=spl(3), sent_messages=len(sent),
                       sysex_frame_ok=all(m[:5] == bytes([0xf0, 0x7d, 0x4e, 0x43, 0x5c]) and m[-1] == 0xf7 for m in sent),
                       crc_total_ok=spl(4) == zlib.crc32(src), js_complete=jr.get('done'),
-                      js_sha_matches_source=jr.get('sha') == hashlib.sha256(src).hexdigest(), js_error=js.stderr[-300:])
+                      js_sha_matches_source=jr.get('sha') == hashlib.sha256(src).hexdigest(), js_error=js.stderr[-300:],
+                      presets_name=pre_name, presets_tag=pre_tag.decode('latin1'))
 for h in hp: u.hook_del(h)
 print(json.dumps(res, indent=1))
 
@@ -404,5 +421,6 @@ ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'
       and res['fase_b']['diag_code'] == 4 and res['fase_b']['diag_beeps_heard'] == 4
       and res['fase_d1']['find_name'] == ['spl'] and res['fase_d1']['ble_trigger'] == 0 and res['fase_d1']['usb_trigger'] == 1
       and res['fase_d1']['state'] == 2 and res['fase_d1']['chunks'] == 7 and res['fase_d1']['sysex_frame_ok']
-      and res['fase_d1']['crc_total_ok'] and res['fase_d1']['js_complete'] and res['fase_d1']['js_sha_matches_source'])
+      and res['fase_d1']['crc_total_ok'] and res['fase_d1']['js_complete'] and res['fase_d1']['js_sha_matches_source']
+      and res['fase_d1']['presets_name'] == 'presets' and res['fase_d1']['presets_tag'] == 'NHP1')
 print('EMULATIE', 'OK' if ok else 'MISLUKT'); sys.exit(0 if ok else 1)
