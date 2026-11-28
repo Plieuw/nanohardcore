@@ -6,7 +6,7 @@
  * brighter, as on the real tube.
  *
  * Freestanding C99 like dsp/: no libm, no malloc, no writable statics. Pixels are
- * RGB565 or XRGB8888 (whatever aicfb reports at run time); layouts use fb->w/fb->h,
+ * RGB565, RGB888 or XRGB8888 (whatever aicfb reports at run time); layouts use fb->w/fb->h,
  * so a portrait 240x320 panel works as well as 320x240.
  */
 #ifndef VEC_H_INCLUDED
@@ -19,7 +19,7 @@
 typedef struct {
     void *px;          /* row-major pixels */
     int w, h, stride;  /* stride in pixels */
-    int bpp;           /* 16 = RGB565, 32 = XRGB8888 (0xAARRGGBB words); 0 counts as 16 */
+    int bpp;           /* 16 = RGB565, 24 = RGB888 (bytes B,G,R), 32 = XRGB8888 (0xAARRGGBB); 0 = 16 */
 } VecFb;
 
 typedef struct { uint8_t r, g, b; } VecColor;

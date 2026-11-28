@@ -240,8 +240,8 @@ for line in subprocess.run(['llvm-nm', '-S', str(ROOT / 'build/fw12/device.elf')
     p_ = line.split()
     if len(p_) == 4: ALL[p_[3]] = (int(p_[0], 16), int(p_[1], 16))
 FBMEM, HANDLE = 0x301a0000, 0x30190000
-W_, H_ = 320, 240
-fbinfo = {'format': 14, 'bpp': 16}
+# zoals de pedal het waarschijnlijk meldt: portret, bpp-veld 0, ioctl != 0, smem_len = 1 frame
+fbinfo = {'format': 14, 'bpp': 0, 'w': 240, 'h': 320, 'rc': 0xffffffff, 'frames': 1}
 pans, native = [], {'lvgl': 0, 'enc': 0}
 pins = {39: 1, 75: 1}                                     # 1 = losgelaten (actief laag)
 u.mem_write(0x30117f78, struct.pack('<I', 39)); u.mem_write(0x30117f7c, struct.pack('<I', 75))
@@ -253,8 +253,9 @@ def periph(uc, addr, size, _):
     if addr == 0x4005cb68:                                # aicfb ioctl
         cmd, arg = uc.reg_read(r.UC_RISCV_REG_A1), uc.reg_read(r.UC_RISCV_REG_A2)
         if cmd == 0x4662:
-            bpp = fbinfo['bpp']; stride = W_ * bpp // 8
-            uc.mem_write(arg, struct.pack('<5III', fbinfo['format'], bpp, stride, W_, H_, FBMEM, 2 * stride * H_))
+            B = {14: 2, 8: 3, 0: 4, 4: 4}.get(fbinfo['format'], 4); stride = fbinfo['w'] * B
+            uc.mem_write(arg, struct.pack('<5III', fbinfo['format'], fbinfo['bpp'], stride, fbinfo['w'], fbinfo['h'], FBMEM, fbinfo['frames'] * stride * fbinfo['h']))
+            ret(uc, fbinfo['rc']); return
         elif cmd == 0x4643: pans.append(struct.unpack('<i', uc.mem_read(arg, 4))[0])
         ret(uc, 0)
     elif addr == 0x4004f4b8: native['lvgl'] += 1; ret(uc, 7)
@@ -273,8 +274,9 @@ call(SYM['nc_hc_enc_dispatch'])
 gr = dict(returns=[v0, v1, v2], native_lvgl=native['lvgl'], native_enc=native['enc'], state=scr(0))
 _, n_take = ui_at(3020)                                   # overname + eerste bootframe
 _, n_boot = ui_at(3020 + 2000)                            # bootframe op t = 2000
+W_, H_ = fbinfo['w'], fbinfo['h']
 frame = bytes(u.mem_read(FBMEM + W_ * 2 * H_ * pans[-1], W_ * 2 * H_))
-subprocess.run([str(ROOT / 'build/vecshot'), str(ROOT / 'build'), '2000'], check=True)
+subprocess.run([str(ROOT / 'build/vecshot'), str(ROOT / 'build'), 'p', '2000'], check=True)
 ref = (ROOT / 'build/boot_02000.ppm').read_bytes()[-W_ * H_ * 3:]
 same = 0
 for i in range(W_ * H_):
@@ -298,10 +300,28 @@ res['fase_b'] = dict(grace=gr, state=scr(0), reason=scr(1), frames=scr(2), info=
                      native_enc_after_takeover=native['enc'] - gr['native_enc'],
                      native_lvgl_after_takeover=native['lvgl'] - gr['native_lvgl'],
                      idle_tick_drew=idle_drew, instr_idle_tick=n_idle)
-# onbekend pixelformaat (RGB888): geen overname, alles blijft native
-sa, ss = ALL['S']; u.mem_write(sa, bytes(ss)); fbinfo.update(format=8, bpp=24)
+# 24-bit RGB888 wordt nu ook overgenomen (zoals de native tabel het toelaat)
+sa, ss = ALL['S']
+u.mem_write(sa, bytes(ss)); fbinfo.update(format=8, w=320, h=240)
+nl = native['lvgl']; ui_at(100); ui_at(3200); ui_at(3300)
+f24 = bytes(u.mem_read(FBMEM + 320 * 3 * 240 * pans[-1], 320 * 3 * 240))
+res['fase_b'].update(rgb888_state=scr(0), rgb888_lit_bytes=sum(1 for x in f24 if x))
+# onzinnige resolutie: geen overname, alles native, reden 4
+u.mem_write(sa, bytes(ss)); fbinfo.update(format=14, w=0, h=0)
 nl = native['lvgl']; ui_at(100); ui_at(3200); v_bad, _ = ui_at(3300)
 res['fase_b'].update(bad_format_state=scr(0), bad_format_reason=scr(1), bad_format_native=native['lvgl'] - nl, bad_format_return=v_bad)
+# hoorbare diagnose: na 7 s eigen keten zoveel piepjes als de reden (hier 4)
+DG = SYM['nc_hc_diag']
+call(SYM['nc_hc_ui_cc'], (19, 127))                     # keten op mute: alleen de piepjes zijn hoorbaar
+for k in range(40): chunk([0.0] * N)
+u.mem_write(DG, struct.pack('<3I', 0, int(7 * FS) - 2 * N, 0))
+energy = []
+for k in range(int(1.4 * FS / N)):
+    ol, orr, n = chunk([0.0] * N)
+    energy.append(max(abs(x) for x in ol))
+beeps = sum(1 for a_, b_ in zip(energy, energy[1:]) if a_ < 0.05 <= b_)
+call(SYM['nc_hc_ui_cc'], (19, 0))
+res['fase_b'].update(diag_code=struct.unpack('<I', u.mem_read(DG, 4))[0], diag_beeps_heard=beeps, diag_peak=round(max(energy), 3))
 for h in hp: u.hook_del(h)
 print(json.dumps(res, indent=1))
 
@@ -322,6 +342,7 @@ ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'
       and res['fase_b']['boot_frame_match_pct'] >= 99.0 and res['fase_b']['cc_queued_by_B'] == 1
       and res['fase_b']['a_press_opens_block'] and res['fase_b']['native_enc_after_takeover'] == 0
       and res['fase_b']['native_lvgl_after_takeover'] == 0 and res['fase_b']['bad_format_state'] == 2
-      and res['fase_b']['bad_format_reason'] == 3 and res['fase_b']['bad_format_return'] == 7
-      and res['fase_b']['idle_tick_drew'] == 0)
+      and res['fase_b']['bad_format_reason'] == 4 and res['fase_b']['bad_format_return'] == 7
+      and res['fase_b']['idle_tick_drew'] == 0 and res['fase_b']['rgb888_state'] == 1 and res['fase_b']['rgb888_lit_bytes'] > 1000
+      and res['fase_b']['diag_code'] == 4 and res['fase_b']['diag_beeps_heard'] == 4)
 print('EMULATIE', 'OK' if ok else 'MISLUKT'); sys.exit(0 if ok else 1)
