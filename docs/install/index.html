@@ -38,13 +38,13 @@
   <button id="restore" class="sec">Origineel terugzetten</button>
   <button id="importBackup" class="sec">Backupbestand gebruiken</button>
   <a id="backupLink" class="btn" hidden>Download backup</a>
-  <br><a href="spl.html">Bootloader (SPL) alleen-lezen uitlezen</a> (voor fase D)
+  <br><a href="spl.html">Bootloader, presets en env alleen-lezen uitlezen</a> (voor fase C en D)
 </p>
 <input id="backupFile" type="file" accept=".bin" hidden>
 <details><summary>Wat de pagina ziet</summary><pre id="log"></pre></details>
 </div>
 <div class="box">
-<p><b>Na het installeren (v0.1-beta4; audio, scherm en knoppen werken op de pedal):</b> de eerste 3 seconden na het aanzetten draait de pedal nog origineel. Daarna vervangt HARDCORE de hele effectketen (909 → Sherman → Mackie, wat het preset ook is), verschijnt het vector-opstartscherm en bedien je alles met de twee knoppen: A draaien/drukken = kiezen/openen, A lang = home, B draaien = waarde, B kort = fijn of schakelaar, B lang = beginwaarde, A+B = bypass. Rechtsboven staat een CPU-meter. Haalt de audio de deadline echt niet, dan neemt de originele keten het weer over en staat er <b>CPU LIMIT</b> of <b>CHAIN LIMIT</b> met een percentage op het scherm; geef dat getal door en zet de pedal uit en aan. De updater blijft altijd bereikbaar, en terugzetten naar je backup kan hier.</p>
+<p><b>Na het installeren (v0.1-beta5; audio, scherm en knoppen werken op de pedal):</b> de eerste 3 seconden na het aanzetten draait de pedal nog origineel. Daarna vervangt HARDCORE de hele effectketen (909 → Sherman → Mackie, wat het preset ook is), verschijnt het vector-opstartscherm en bedien je alles met de twee knoppen: A draaien/drukken = kiezen/openen, A lang = home, B draaien = waarde, B kort = fijn of schakelaar, B lang = beginwaarde, A+B = bypass. Rechtsboven staat een CPU-meter. Haalt de audio de deadline echt niet, dan neemt de originele keten het weer over en staat er <b>CPU LIMIT</b> of <b>CHAIN LIMIT</b> met een percentage op het scherm; geef dat getal door en zet de pedal uit en aan. De updater blijft altijd bereikbaar, en terugzetten naar je backup kan hier.</p>
 <p><b>Diagnose-piepjes (beta):</b> neemt HARDCORE het scherm niet over, dan piept de pedal ongeveer 7 seconden na het aanzetten een aantal keer: 1 = geen schermdriver, 3 = onbekend kleurformaat, 4 = vreemde resolutie, 5 = framebuffer/stride, 6 = de schermhaak wordt nooit aangeroepen. Geen piepjes = het scherm is van HARDCORE. Geef het aantal door.</p>
 <p><b>Knoppen:</b> SENS · TUNE · DECAY · DRIVE · FREQ · RESO · L-B-H · ENV&gt;F (midden = 0) · HARM (FREE/x2/x4/x16) · INPUT (909 / 909+DRY / AUDIO / AUD+909) · LEVEL</p>
 </div>
