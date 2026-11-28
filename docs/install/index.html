@@ -16,9 +16,9 @@
 </head>
 <body>
 <h1>HARDCORE op je NanoCore <small>(firmware 1.2, experimenteel)</small></h1>
-<p>Zet <b>909 → Sherman → Mackie</b> in het FX2-slot van de Octaver/PITCH. De rest van de firmware blijft origineel, ook BLE-MIDI, USB en de updater.</p>
+<p>Maakt van je NanoCore een HARDCORE-editie: <b>909 → Sherman → Mackie</b> als de hele keten, met een eigen vectorscherm en bediening met de twee knoppen. BLE-MIDI, USB en de updater blijven origineel, zodat terugzetten altijd kan.</p>
 <div class="box warn">
-  <p><b>Experimenteel, nog niet op hardware getest.</b> De installatie gebruikt dezelfde opstartmethode en dezelfde haakpunten als de op hardware geteste 1.2-Octaver van <a href="https://github.com/jcuhnoio/re-nanocore">re-nanocore</a>, en is in emulatie getest tegen exact deze firmware. Alleen een pedal met de originele 1.2 wordt geaccepteerd; al het andere wordt geweigerd zonder te schrijven.</p>
+  <p><b>Beta.</b> Audio, scherm en knoppen werken op de pedal; elke uitgave is in emulatie getest tegen exact deze firmware. De installatie gebruikt dezelfde opstartmethode als de op hardware geteste 1.2-Octaver van <a href="https://github.com/jcuhnoio/re-nanocore">re-nanocore</a>. Alleen de originele 1.2 of een eerdere HARDCORE-uitgave wordt geaccepteerd; al het andere wordt geweigerd zonder te schrijven.</p>
 </div>
 <div class="box">
 <ol>
@@ -38,6 +38,7 @@
   <button id="restore" class="sec">Origineel terugzetten</button>
   <button id="importBackup" class="sec">Backupbestand gebruiken</button>
   <a id="backupLink" class="btn" hidden>Download backup</a>
+  <br><a href="spl.html">Bootloader (SPL) alleen-lezen uitlezen</a> (voor fase D)
 </p>
 <input id="backupFile" type="file" accept=".bin" hidden>
 <details><summary>Wat de pagina ziet</summary><pre id="log"></pre></details>

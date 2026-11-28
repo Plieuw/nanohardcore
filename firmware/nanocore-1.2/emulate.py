@@ -330,6 +330,54 @@ for k in range(int(1.4 * FS / N)):
 beeps = sum(1 for a_, b_ in zip(energy, energy[1:]) if a_ < 0.05 <= b_)
 call(SYM['nc_hc_ui_cc'], (19, 0))
 res['fase_b'].update(diag_code=struct.unpack('<I', u.mem_read(DG, 4))[0], diag_beeps_heard=beeps, diag_peak=round(max(energy), 3))
+# 8. Fase D1: SPL alleen-lezen uitlezen. Startsein CC 84 'S' 'P' 'L' (USB = poort 0) ->
+#    nc_hc_ui_tick leest de partitie blok voor blok en verstuurt via de ECHTE native
+#    verzender 0x4001854c (7-bit inpakken + framing). Onderschept: de USB-schrijffunctie
+#    en de flash-leesfuncties (die geven een bekend patroon).
+import hashlib
+u.mem_write(sa, bytes(ss)); fbinfo.update(format=14, w=240, h=320)
+ui_at(100); ui_at(3200)
+STUB, PART, SPLN = 0x30170000, 0x30171000, 5000
+u.mem_write(STUB, bytes.fromhex('67800000'))               # ret
+u.mem_write(0x30111680, struct.pack('<I', STUB))           # schrijffunctie van poort 0 (USB)
+u.mem_write(PART + 0x38, struct.pack('<I', SPLN))
+src = bytes(hashlib.sha256(i.to_bytes(4, 'little')).digest()[0] for i in range(SPLN))
+sent, finds = [], []
+def d1(uc, addr, size, _):
+    if addr == STUB:
+        sent.append(bytes(uc.mem_read(uc.reg_read(r.UC_RISCV_REG_A0), uc.reg_read(r.UC_RISCV_REG_A1))))
+    elif addr == 0x4000e65e:
+        finds.append(bytes(uc.mem_read(uc.reg_read(r.UC_RISCV_REG_A0), 4)).split(b'\0')[0].decode())
+        ret(uc, PART)
+    elif addr == 0x4000e6ac:
+        off, buf, n = (uc.reg_read(getattr(r, 'UC_RISCV_REG_A%d' % k)) for k in (1, 2, 3))
+        uc.mem_write(buf, src[off:off + n]); ret(uc, n)
+hd = [u.hook_add(UC_HOOK_CODE, d1, begin=a, end=a) for a in (STUB, 0x4000e65e, 0x4000e6ac)]
+mi = lambda port, v: call(SYM['nc_midi_in'], (port, 0xB0, 84, v, 1))[0]
+REQ = SYM['nc_hc_spl_req']; req = lambda: struct.unpack('<I', u.mem_read(REQ, 4))[0]
+r0 = req(); ble = [mi(1, v) for v in (0x53, 0x50, 0x4c)]; ble_req = req() - r0       # BLE: geen dump
+usb = [mi(0, v) for v in (0x53, 0x50, 0x4c)]; usb_req = req() - r0
+SP = SYM['nc_hc_spl']; spl = lambda i: struct.unpack('<I', u.mem_read(SP + 4 * i, 4))[0]
+tms = 3300
+for k in range(40):
+    tms += 40; ui_at(tms)
+    if spl(0) == 2: break
+for h in hd: u.hook_del(h)
+(ROOT / 'build/spl_msgs.json').write_text(json.dumps([m.hex() for m in sent]))
+js = subprocess.run(['node', '-e', """
+import('%s').then(async m => {
+  const msgs = JSON.parse(require('fs').readFileSync('%s', 'utf8')).map(h => Uint8Array.from(Buffer.from(h, 'hex')));
+  const c = new m.Collector(); let done = false;
+  for (const x of msgs) { const ch = m.parseChunk(x); if (ch) done = c.add(ch); }
+  console.log(JSON.stringify({done, sha: require('crypto').createHash('sha256').update(c.buf).digest('hex')}));
+})""" % (ROOT / 'docs/install/spl.js', ROOT / 'build/spl_msgs.json')], capture_output=True, text=True)
+jr = json.loads(js.stdout or '{}')
+import zlib
+res['fase_d1'] = dict(find_name=finds[:1], ble_trigger=ble_req, usb_trigger=usb_req, midi_consumed=ble + usb,
+                      state=spl(0), chunks=spl(3), sent_messages=len(sent),
+                      sysex_frame_ok=all(m[:5] == bytes([0xf0, 0x7d, 0x4e, 0x43, 0x5c]) and m[-1] == 0xf7 for m in sent),
+                      crc_total_ok=spl(4) == zlib.crc32(src), js_complete=jr.get('done'),
+                      js_sha_matches_source=jr.get('sha') == hashlib.sha256(src).hexdigest(), js_error=js.stderr[-300:])
 for h in hp: u.hook_del(h)
 print(json.dumps(res, indent=1))
 
@@ -353,5 +401,8 @@ ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'
       and res['fase_b']['native_lvgl_after_takeover'] == 0 and res['fase_b']['bad_format_state'] == 2
       and res['fase_b']['bad_format_reason'] == 4 and res['fase_b']['bad_format_return'] == 7
       and res['fase_b']['idle_tick_drew'] == 0 and res['fase_b']['rgb888_state'] == 1 and res['fase_b']['rgb888_lit_bytes'] > 1000
-      and res['fase_b']['diag_code'] == 4 and res['fase_b']['diag_beeps_heard'] == 4)
+      and res['fase_b']['diag_code'] == 4 and res['fase_b']['diag_beeps_heard'] == 4
+      and res['fase_d1']['find_name'] == ['spl'] and res['fase_d1']['ble_trigger'] == 0 and res['fase_d1']['usb_trigger'] == 1
+      and res['fase_d1']['state'] == 2 and res['fase_d1']['chunks'] == 7 and res['fase_d1']['sysex_frame_ok']
+      and res['fase_d1']['crc_total_ok'] and res['fase_d1']['js_complete'] and res['fase_d1']['js_sha_matches_source'])
 print('EMULATIE', 'OK' if ok else 'MISLUKT'); sys.exit(0 if ok else 1)

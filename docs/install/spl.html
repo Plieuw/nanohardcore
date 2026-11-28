@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nanohardcore · bootloader uitlezen (alleen lezen)</title>
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;max-width:680px;margin:2rem auto;padding:0 1rem;background:#111;color:#eee}
+  h1{font-size:1.4rem} .box{background:#1c1c1c;border:1px solid #333;border-radius:8px;padding:1rem;margin:1rem 0}
+  button,a.btn{font:inherit;padding:.6rem 1rem;border-radius:6px;border:0;background:#e8562a;color:#fff;cursor:pointer;text-decoration:none;display:inline-block;margin:.25rem 0}
+  button:disabled{background:#444;color:#888;cursor:default} [hidden]{display:none!important} progress{width:100%} #error{color:#ff7a7a}
+  code{word-break:break-all}
+</style>
+</head>
+<body>
+<h1>Bootloader (SPL) uitlezen <small>— alleen lezen</small></h1>
+<div class="box">
+<p>Voor fase D (een eigen besturingssysteem) moet eerst vaststaan of de NanoCore te herstellen blijft als de app niet opstart. Daarvoor is de bootloader nodig. Deze pagina laat HARDCORE de partitie <code>spl</code> <b>alleen lezen</b> en via USB-MIDI terugsturen. Er wordt niets op de pedal geschreven of gewist.</p>
+<ol>
+  <li>HARDCORE <b>v0.1-beta4 of nieuwer</b> staat op de pedal en het HARDCORE-scherm staat aan (na ±3 s).</li>
+  <li>Sluit de pedal met <b>USB</b> aan (BLE werkt hiervoor niet) en sluit ToneCommand.</li>
+  <li>Klik <b>Uitlezen</b> en sta MIDI (met SysEx) toe. Duurt ongeveer 10 seconden.</li>
+  <li>Sla <code>nanocore-spl.bin</code> op en stuur het bestand naar Claude.</li>
+</ol>
+<button id="start">Uitlezen</button>
+<progress id="progress" max="100" value="0"></progress>
+<p><b id="status">Klaar om te beginnen</b><br><span id="detail"></span></p>
+<p id="error" hidden></p>
+<a id="save" class="btn" hidden>Download nanocore-spl.bin</a>
+</div>
+<p><a href="./">Terug naar installeren</a></p>
+<script type="module" src="./spl.js"></script>
+</body>
+</html>
