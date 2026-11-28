@@ -338,7 +338,34 @@ scherm en zijn vrijwel onbereikbaar. Zonder die route betekent één fout een br
 - Het OS zelf opent de partitie `spl` (`"spl"` op `0x4008c000`, gebruikt bij `0x400384d6`).
   Onze code kan de SPL dus **alleen-lezen** via dezelfde MTD-route uitlezen.
 
-**Veilige volgende stap voor D (D1):** een alleen-lezende SPL-uitleesfunctie in de
+**Nieuw bewijs (2026-11-28): de updater hangt van het OS af.**
+- De SysEx-verzamelaar `0x400193a2` (max 1 KB) herkent precies
+  `F0 7D 44 46 55 01 F7` en roept **`0x400384be`** aan.
+- Die functie opent de partitie `spl` (`0x4000e65e("spl")`) en zoekt de updater erin op
+  (`0x400383fc`). Hij leest hem met `0x4000e6ac(partitie, offset, buf, len)` in blokken
+  van 4 KB in RAM (venster `0x40300000`–`0x40340000`) en start hem.
+- **De gewone herstelroute wordt dus door het OS gestart.** Zonder werkend OS hangt herstel
+  af van wat de SPL of de BROM zelf doet, en dat is nog onbekend.
+- Verder gevonden:
+  - ToneCommand-kop `F0 7D 4E 43 70` ("NCp");
+  - de antwoordbouwer `0x4001862a` (kop van 8 B plus ≤ `0x300` B);
+  - de **verzender `0x4001854c(poort, cmd, data, len ≤ 0x400)`**, die 7-bit inpakt en
+    `F0 7D 4E 43 cmd … F7` verstuurt;
+  - schrijffuncties per poort: poort 0 = **USB** (`0x4002ffc6`, gezet via `0x40018d34`),
+    poort 1 = **BLE** (de radiomodule zet hem op 0 bij een verbreking).
+
+**D1 gebouwd (2026-11-28): alleen-lezende SPL-dump.**
+- Startsein over USB: CC 84 met de waarden `S`, `P`, `L` (`nc_midi_in`, alleen poort 0).
+- `screen.c` leest per UI-tick (~30 ms) 768 B via `0x4000e65e`/`0x4000e6ac` en verstuurt
+  dat met de native verzender als `F0 7D 4E 43 5C <7-bit: "NHS1", offset, totaal, crc32,
+  data> F7`. De voortgang staat op het scherm ("SPL LEZEN 37%"). Er wordt niets geschreven.
+- Pagina `docs/install/spl.html` met `spl.js`: stuurt het startsein, zet de blokken in
+  elkaar, controleert elke CRC en vergelijkt de SHA-256 met de bekende re-nanocore-dump
+  (`2c254261…`). Daarna download `nanocore-spl.bin`.
+- Emulatie (§8): de echte native verzender verpakt; de echte `spl.js` zet het in node
+  weer in elkaar tot exact de bron. Een startsein via BLE start niets.
+
+**Veilige volgende stap voor D (D1, oorspronkelijk plan):** een alleen-lezende SPL-uitleesfunctie in de
 HARDCORE-firmware. Op een eigen SysEx leest hij de partitie `spl` en stuurt die in
 SysEx-blokken met controlesom terug over USB-MIDI. Een pagina zoals de installer slaat het
 op. Er wordt niets geschreven. Met die dump is te analyseren of er een herstelroute
