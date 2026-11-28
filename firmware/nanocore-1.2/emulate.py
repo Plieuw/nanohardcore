@@ -223,12 +223,20 @@ res['fase_a'] = dict(blocks=fa(0), native_blocks=fa(1), own_blocks=fa(2), reason
                      native_chunk_instr_avg=sum(native_n) / len(native_n),
                      own_chunk_instr_avg=sum(own_n) / len(own_n), own_chunk_instr_max=max(own_n),
                      own_load_pct_max=100 * max(own_n) / (4e6 * N / FS * ipt[0]), fault=fault())
+# één los zwaar blok (bv. een onderbreking door scherm of BLE) mag geen CPU LIMIT geven
+ipt[0] = INSTR_PER_US / 4.0 / 2.0
+chunk([0.3] * N)
+ipt[0] = INSTR_PER_US / 4.0
+for k in range(4): chunk([0.3] * N)
+LD = SYM['nc_hc_load']
+res['fase_a'].update(single_spike_fault=fault(), load_avg_pm=struct.unpack('<I', u.mem_read(LD, 4))[0],
+                     load_peak_pm=struct.unpack('<I', u.mem_read(LD + 4, 4))[0])
 # CPU-fout -> terug naar de native keten (latch), geen eigen DSP meer
 ipt[0] = INSTR_PER_US / 4.0 / 4.0
 for k in range(6): chunk([0.3] * N)
 own_before = fa(2); ipt[0] = INSTR_PER_US / 4.0
 ol, orr, n = chunk([0.25] * N)
-res['fase_a'].update(fault_slow_clock=fault(), native_after_fault=fa(2) == own_before and fa(3) == 2,
+res['fase_a'].update(fault_load_pm=struct.unpack('<I', u.mem_read(LD + 8, 4))[0], fault_slow_clock=fault(), native_after_fault=fa(2) == own_before and fa(3) == 2,
                      native_after_fault_passthrough=abs(ol[10] - OUT_G * 0.25) < 1e-4)
 u.mem_write(SYM['nc_octave_fault'], b'\0\0\0\0')
 
@@ -336,6 +344,7 @@ ok = (res['init_bad_count'] != 0 and res['init_bad_rate'] != 0 and res['init_rc'
       and res['fase_a']['grace_passthrough_max_err'] < 1e-4 and res['fase_a']['wet_peak'] > 0.05
       and res['fase_a']['amp_skipped'] >= 190 and res['fase_a']['fault'] == 0
       and res['fase_a']['fault_slow_clock'] in (1, 2) and res['fase_a']['native_after_fault']
+      and res['fase_a']['single_spike_fault'] == 0 and res['fase_a']['fault_load_pm'] > 950
       and res['fase_a']['native_after_fault_passthrough']
       and res['fase_b']['grace']['returns'] == [7, 7, 7] and res['fase_b']['grace']['native_enc'] == 1
       and res['fase_b']['state'] == 1 and res['fase_b']['pans'][:4] == [1, 0, 1, 0]

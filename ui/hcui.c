@@ -238,7 +238,7 @@ uint32_t hcui_signature(const HcUi *u, const Chain *c, uint32_t now)
     uint32_t h = 2166136261u;
 #define MIX(x) (h = (h ^ (uint32_t)(x)) * 16777619u)
     MIX(u->screen); MIX(u->block); MIX(u->page); MIX(u->row); MIX(u->fine); MIX(u->bypass);
-    MIX(c != 0); MIX(u->msg && now < u->msg_until); MIX((uintptr_t)u->msg);
+    MIX(c != 0); MIX(u->msg && now < u->msg_until); MIX((uintptr_t)u->msg); MIX(u->cpu_pm);
     if (c) {
         MIX(c->trig_count != u->trig_seen || now < u->trig_flash_until);
         for (int i = 0; i < NP; i++) MIX(hcui_param_get(c, i));
@@ -311,8 +311,18 @@ int hcui_render(HcUi *u, VecFb *fb, const Chain *c, uint32_t now)
     vec_line(fb, lx - 4.f, ly, lx, ly - 4.f, lc, 1.f); vec_line(fb, lx, ly - 4.f, lx + 4.f, ly, lc, 1.f);
     vec_line(fb, lx + 4.f, ly, lx, ly + 4.f, lc, 1.f); vec_line(fb, lx, ly + 4.f, lx - 4.f, ly, lc, 1.f);
     if (lit) { vec_line(fb, lx - 2.f, ly, lx + 2.f, ly, TXT, 1.f); anim = 1; }
-    if (u->bypass) text_r(fb, lx - 10.f, 5.f, 9.f, "BYPASS", RED, 1.f);
-    else if (u->fine) text_r(fb, lx - 10.f, 5.f, 9.f, "FIJN", MUTED, 1.f);
+    float rx = lx - 10.f;
+    if (u->cpu_pm) {                                   /* CPU-meter: balk + percentage */
+        char cpu[8]; char *e = put_int(cpu, (u->cpu_pm + 5) / 10); put_str(e, "%");
+        int hot = u->cpu_pm >= 700;
+        float bw = 22.f, bx = rx - bw;
+        vec_line(fb, bx, 17.5f, bx + bw, 17.5f, DIM, .5f);
+        vec_line(fb, bx, 17.5f, bx + bw * (float)(u->cpu_pm > 1000 ? 1000 : u->cpu_pm) / 1000.f, 17.5f, hot ? RED : BLOCKS[HCUI_B_MACKIE].color, 1.f);
+        text_r(fb, bx + bw, 4.f, 7.f, cpu, hot ? RED : MUTED, .9f);
+        rx = bx - 6.f;
+    }
+    if (u->bypass) text_r(fb, rx, 5.f, 9.f, "BYPASS", RED, 1.f);
+    else if (u->fine) text_r(fb, rx, 5.f, 9.f, "FIJN", MUTED, 1.f);
     vec_line(fb, 4.f, 21.f, W - 4.f, 21.f, DIM, .6f);
 
     char val[16];
@@ -374,9 +384,11 @@ int hcui_render(HcUi *u, VecFb *fb, const Chain *c, uint32_t now)
 
     if (c == 0) text_r(fb, W - 8.f, H - 30.f, 7.f, "KETEN START...", MUTED, .8f);
     if (u->msg && now < u->msg_until) {
-        float mw = vec_text_width(u->msg, 14.f), mx = (W - mw) * .5f, my = H * .5f - 12.f;
-        rect(fb, mx - 10.f, my - 8.f, mw + 20.f, 30.f, TXT, .9f);
-        vec_text(fb, mx, my, 14.f, 0.f, u->msg, TXT, 1.f, 0);
+        float mh = 14.f; if (vec_text_width(u->msg, mh) > W - 40.f) mh = 14.f * (W - 40.f) / vec_text_width(u->msg, 14.f);
+        float mw = vec_text_width(u->msg, mh), mx = (W - mw) * .5f, my = H * .5f - 12.f;
+        vec_clear_rect(fb, (int)(mx - 14.f), (int)(my - 12.f), (int)(mw + 28.f), (int)(mh + 24.f));
+        rect(fb, mx - 10.f, my - 8.f, mw + 20.f, mh + 16.f, TXT, .9f);
+        vec_text(fb, mx, my, mh, 0.f, u->msg, TXT, 1.f, 0);
         anim = 1;
     }
     u->dirty = 0;

@@ -25,6 +25,21 @@ void vec_clear(VecFb *fb)
     }
 }
 
+void vec_clear_rect(VecFb *fb, int x0, int y0, int w, int h)
+{
+    int x1 = x0 + w, y1 = y0 + h;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > fb->w) x1 = fb->w;
+    if (y1 > fb->h) y1 = fb->h;
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) {
+            if (fb->bpp == 32) ((uint32_t *)fb->px)[y * fb->stride + x] = 0xff000000u;
+            else if (fb->bpp == 24) { uint8_t *q = (uint8_t *)fb->px + 3 * (y * fb->stride + x); q[0] = q[1] = q[2] = 0; }
+            else ((uint16_t *)fb->px)[y * fb->stride + x] = 0;
+        }
+}
+
 /* ---- the beam ----
  * Light falls off with the perpendicular distance d (pixels) to the segment:
  * core (d < 0.55) full, then a quick drop and a long faint glow up to 3 px. */

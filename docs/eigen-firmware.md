@@ -250,6 +250,20 @@ alleen bij een wijziging.
 | 5 | framebuffer of stride ongeldig |
 | 6 | de UI-haak (`0x40017ab2`) is nooit aangeroepen |
 
+**Hardwaretest v0.1-beta2 (2026-11-28):** het scherm en de knoppen werken op de pedal.
+Na een tijdje verscheen **CPU LIMIT**.
+- Oorzaak (vermoedelijk): fase A gebruikte nog de FX2-bewaking. Eén blok boven 67,5 %, of
+  3 van de 64 boven 65 %, gaf al een fout die tot de herstart blijft. Die meting telt ook
+  onderbrekingen (scherm naar paneel, BLE) mee.
+- Nu, omdat fase A het hele blok heeft: de native deadline-bewaking (fout 2) blijft
+  zoals hij was. Onze eigen meting is een vangnet: één blok > 95 %, of 8 van de 64 > 80 %
+  (`FASE_A_SOFT_PERCENT`, `FASE_A_HARD_PERCENT`).
+- Op het scherm:
+  - een CPU-meter in de kop (gemiddelde, stappen van 5 %, 2× per s);
+  - bij een fout "CPU LIMIT 97%" (eigen meting) of "CHAIN LIMIT 3X 81%" (aantal native
+    overschrijdingen en de belasting).
+- Opstartanimatie van ~30 naar ~20 fps.
+
 **Op de pedal te bevestigen** (instelbaar in `screen.c`):
 1. Welke encoder links zit: `NC_UI_A_IS_ENC1`. Nu enc1 = A, de knop met de native
    lange druk.

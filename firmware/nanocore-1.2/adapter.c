@@ -325,6 +325,23 @@ typedef struct { float *l, *r; uint8_t stereo; } DispatchOut;
 typedef void (*NativeDispatch)(void *, float *, float *, float *, float *, uint32_t, void *, DispatchOut *);
 typedef void (*NativeAmp)(void *, float *, float *, void *, uint32_t, void *);
 
+#ifndef FASE_A_SOFT_PERCENT
+#define FASE_A_SOFT_PERCENT 80           /* blok "zwaar" (telt mee in het venster) */
+#endif
+#ifndef FASE_A_HARD_PERCENT
+#define FASE_A_HARD_PERCENT 95           /* één blok hierboven: echt bijna te laat */
+#endif
+#define FASE_A_RECENT_MAX 8              /* zware blokken in de laatste 64 */
+/* belasting in promille: gemiddelde, piek, bij de fout, native overschrijdingen */
+volatile uint32_t nc_hc_load[4];
+static unsigned guard_finish_a(Guard *g, uint32_t elapsed, uint32_t soft, uint32_t hard)
+{
+    int heavy = elapsed > soft;
+    if (heavy) g->self_exc++;
+    unsigned recent = recent_push(&g->self, heavy);
+    return elapsed > hard || recent >= FASE_A_RECENT_MAX ? 1 : 0;
+}
+
 static State fase_a;                 /* .bss: zit als nullen in de payload */
 static Guard guard_a;
 
@@ -443,12 +460,18 @@ void nc_hc_dispatch(void *unused, float *in_l, float *in_r, float *out_l, float 
     nc_hc_fase_a[2]++; nc_hc_fase_a[3] = 0;
 
     uint32_t overruns = word(AUDIO_OVERRUNS), calls = word(AUDIO_CALLS);
-    if (guard_observe(&guard_a, calls, overruns, word(AUDIO_SUM), word(AUDIO_DEADLINE))) nc_octave_fault = 2;
+    if (guard_observe(&guard_a, calls, overruns, word(AUDIO_SUM), word(AUDIO_DEADLINE)) && !nc_octave_fault) {
+        nc_octave_fault = 2; nc_hc_load[2] = nc_hc_load[0];
+    }
+    nc_hc_load[3] = guard_a.chain_exc;
 
     uint64_t start = ticks();
     float block_ticks = TICK_HZ * (float)frames / s->rate;
-    uint32_t soft = (uint32_t)(block_ticks * (NC_BUDGET_PERCENT * .01f));
-    uint32_t hard = hard_limit((uint32_t)(block_ticks * ((NC_BUDGET_PERCENT > 60 ? 60 : NC_BUDGET_PERCENT) * .01f)));
+    /* fase A vervangt de hele native keten: het blok is van ons. De echte grens is de
+     * native deadline (guard_observe hierboven, fout 2). Onze eigen meting telt ook
+     * onderbrekingen (scherm, BLE) mee en is daarom alleen een vangnet. */
+    uint32_t soft = (uint32_t)(block_ticks * (FASE_A_SOFT_PERCENT * .01f));
+    uint32_t hard = (uint32_t)(block_ticks * (FASE_A_HARD_PERCENT * .01f));
     midi_drain(s);
     ui_drain(s);
 
@@ -481,5 +504,10 @@ void nc_hc_dispatch(void *unused, float *in_l, float *in_r, float *out_l, float 
     uint32_t last = el > 0xffffffffull ? 0xffffffffu : (uint32_t)el;
     nc_hc_stats[0]++; nc_hc_stats[1] += frames; nc_hc_stats[3] = last;
     if (last > nc_hc_stats[2]) nc_hc_stats[2] = last;
-    if (guard_finish(&guard_a, last, soft, hard)) nc_octave_fault = 1;
+    /* belasting in promille van het blok: gemiddelde (EMA ~50 ms) en piek */
+    uint32_t pm = (uint32_t)((float)last * 1000.f / block_ticks);
+    nc_hc_load[0] = (nc_hc_load[0] * 31u + pm) / 32u;
+    if (nc_hc_stats[0] > 750u && pm > nc_hc_load[1]) nc_hc_load[1] = pm;     /* na 1 s */
+    if (guard_finish_a(&guard_a, last, soft, hard) && !nc_octave_fault) nc_octave_fault = 1;
+    if (nc_octave_fault && !nc_hc_load[2]) nc_hc_load[2] = pm ? pm : 1u;   /* belasting op het moment van de fout */
 }

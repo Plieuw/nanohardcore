@@ -27,6 +27,7 @@ typedef struct {
     uint8_t have_def;
     uint8_t def[64];             /* value of every parameter at start-up (B hold = back) */
     uint32_t dirty;              /* != 0: screen must be redrawn */
+    uint16_t cpu_pm;             /* audio load in per mille, set by the firmware (0 = hide) */
 } HcUi;
 
 typedef struct {

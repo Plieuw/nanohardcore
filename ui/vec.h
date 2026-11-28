@@ -29,6 +29,8 @@ typedef struct { uint8_t r, g, b; } VecColor;
 typedef float VecBudget;
 
 void vec_clear(VecFb *fb);
+/* blank a rectangle (beam off), e.g. behind a message */
+void vec_clear_rect(VecFb *fb, int x, int y, int w, int h);
 /* one beam segment, coordinates in pixels (float, sub-pixel exact), intensity 0..1+ */
 void vec_line(VecFb *fb, float x0, float y0, float x1, float y1, VecColor c, float intensity);
 /* same, honouring a draw budget; returns 1 if (part of) it was drawn */
