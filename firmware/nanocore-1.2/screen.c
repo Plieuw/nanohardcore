@@ -59,6 +59,7 @@
 /* uit adapter.c */
 extern volatile uint32_t nc_octave_fault;
 extern volatile uint32_t nc_hc_bypass;
+extern volatile uint32_t nc_hc_load[4];
 const Chain *nc_hc_chain(void);
 void nc_hc_ui_cc(uint8_t cc, uint8_t value);
 
@@ -71,7 +72,8 @@ typedef struct {                        /* Luban-Lite aicfb_screeninfo (zoals 0x
 
 enum { WAIT = 0, ON = 1, FAULT = 2 };
 static struct {
-    uint32_t started, t0, state, boot_t0, last_draw, back, deb_a, deb_b, a, b, sig;
+    uint32_t started, t0, state, boot_t0, last_draw, back, deb_a, deb_b, a, b, sig, cpu_t;
+    char msg[32];
     void *handle;
     FbInfo info;
     HcUi ui;
@@ -87,6 +89,14 @@ typedef int (*CtlFn)(void *, int, void *);
 typedef int (*PinFn)(int);
 typedef void (*CleanFn)(void *, int);
 typedef void (*VoidFn)(void);
+
+static char *put_u(char *d, uint32_t n)
+{
+    char r[10]; int k = 0;
+    do { r[k++] = (char)('0' + n % 10u); n /= 10u; } while (n && k < 10);
+    while (k) *d++ = r[--k];
+    return d;
+}
 
 /* ms-achtige teller: eenheden van 1,024 ms (4 MHz >> 12), zonder 64-bit deling */
 static uint32_t now_ms(void) { return (uint32_t)(((TicksFn)NATIVE_TICKS)() >> 12); }
@@ -185,11 +195,23 @@ uint32_t nc_hc_ui_tick(void)
     for (int k = 0; k < out.n; k++) nc_hc_ui_cc(out.cc[k], out.val[k]);
     nc_hc_bypass = S.ui.bypass;
     nc_hc_screen[8] = S.ui.screen; nc_hc_screen[9] = S.ui.block;
-    if (nc_octave_fault && !S.ui.msg) { S.ui.msg = nc_octave_fault == 2 ? "CHAIN LIMIT" : "CPU LIMIT"; S.ui.msg_until = 0xffffffffu; }
+    if (nc_octave_fault && S.ui.msg != S.msg) {
+        /* "CPU LIMIT 97%" (eigen meting) of "CHAIN LIMIT 3X 81%" (native deadline gemist) */
+        char *e = S.msg; const char *w = nc_octave_fault == 2 ? "CHAIN LIMIT " : "CPU LIMIT ";
+        while (*w) *e++ = *w++;
+        if (nc_octave_fault == 2) { e = put_u(e, nc_hc_load[3]); *e++ = 'X'; *e++ = ' '; }
+        e = put_u(e, (nc_hc_load[2] + 5u) / 10u); *e++ = '%'; *e = 0;
+        S.ui.msg = S.msg; S.ui.msg_until = 0xffffffffu; S.ui.dirty = 1;
+    }
+    if (now - S.cpu_t >= 500u) {                        /* CPU-meter: 2x per seconde, in stappen van 5% */
+        S.cpu_t = now;
+        uint32_t pm = (nc_hc_load[0] + 25u) / 50u * 50u;
+        S.ui.cpu_pm = (uint16_t)(pm ? pm : 1u);
+    }
 
     uint32_t since = now - S.last_draw;
     if (now - S.boot_t0 < VEC_BOOT_MS) {
-        if (since >= 33u) present(now, 1);                /* opstartscherm: ~30 fps */
+        if (since >= 50u) present(now, 1);                /* opstartscherm: ~20 fps */
     } else if (since >= 16u) {
         /* alleen tekenen als het beeld verandert (knoppen, MIDI, trigger, melding) */
         uint32_t sig = hcui_signature(&S.ui, c, now);
