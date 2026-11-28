@@ -356,6 +356,43 @@ static void ui_drain(State *s)
     nc_hc_ui_tail = t;
 }
 
+/* ---- hoorbare diagnose (beta): ~7 s na de start van de eigen keten piept de pedal
+ * zo vaak als de reden waarom het scherm niet is overgenomen (1 = geen aicfb-handle,
+ * 3 = onbekend pixelformaat, 4 = vreemde resolutie, 5 = framebuffer/stride,
+ * 6 = de UI-haak is nooit aangeroepen). Niets horen = scherm is van HARDCORE. ---- */
+#ifndef NC_DIAG_BEEPS
+#define NC_DIAG_BEEPS 1
+#endif
+extern volatile uint32_t nc_hc_screen[13];
+volatile uint32_t nc_hc_diag[3];          /* code, samples sinds start, gespeeld */
+
+static void diag_beeps(State *s, float *l, float *r, uint32_t n)
+{
+#if NC_DIAG_BEEPS
+    uint32_t t0 = nc_hc_diag[1], rate = (uint32_t)s->rate, at = 7u * rate;
+    nc_hc_diag[1] = t0 + n;
+    if (t0 + n <= at) return;
+    if (!nc_hc_diag[2]) {                                 /* één keer beslissen, na 7 s */
+        nc_hc_diag[2] = 1;
+        nc_hc_diag[0] = nc_hc_screen[12] == 0 ? 6u : nc_hc_screen[0] == 2u ? nc_hc_screen[1] : 0u;
+    }
+    uint32_t code = nc_hc_diag[0];
+    if (!code) return;
+    uint32_t per = rate * 3u / 10u, len = rate * 8u / 100u, fade = rate / 500u;  /* 80 ms per 0,3 s */
+    for (uint32_t i = 0; i < n; i++) {
+        if (t0 + i < at) continue;
+        uint32_t k = t0 + i - at, idx = k / per, ph = k % per;
+        if (idx >= code || ph >= len) continue;
+        float frac = (float)((ph * 1000u) % rate) / (float)rate;      /* 1 kHz */
+        float tri = 4.f * (frac < .5f ? .5f - frac : frac - .5f) - 1.f;
+        float env = ph < fade ? (float)ph / (float)fade : ph > len - fade ? (float)(len - ph) / (float)fade : 1.f;
+        l[i] += .2f * tri * env; r[i] += .2f * tri * env;
+    }
+#else
+    (void)s; (void)l; (void)r; (void)n;
+#endif
+}
+
 const Chain *nc_hc_chain(void)
 {
     return fase_a.magic == MAGIC ? &fase_a.chain : 0;
@@ -437,6 +474,7 @@ void nc_hc_dispatch(void *unused, float *in_l, float *in_r, float *out_l, float 
             out_r[i] += (d - out_r[i]) * bypass_g;
         }
     }
+    diag_beeps(s, out_l, out_r, frames);
     res->l = out_l; res->r = out_r; res->stereo = 1;
 
     uint64_t el = ticks() - start;

@@ -20,6 +20,7 @@ void vec_clear(VecFb *fb)
 {
     for (int y = 0; y < fb->h; y++) {
         if (fb->bpp == 32) { uint32_t *r = (uint32_t *)fb->px + y * fb->stride; for (int x = 0; x < fb->w; x++) r[x] = 0xff000000u; }
+        else if (fb->bpp == 24) { uint8_t *r = (uint8_t *)fb->px + 3 * y * fb->stride; for (int x = 0; x < 3 * fb->w; x++) r[x] = 0; }
         else { uint16_t *r = (uint16_t *)fb->px + y * fb->stride; for (int x = 0; x < fb->w; x++) r[x] = 0; }
     }
 }
@@ -41,8 +42,11 @@ static void add_light(VecFb *fb, int x, int y, VecColor c, float w)
 {
     if (x < 0 || y < 0 || x >= fb->w || y >= fb->h || w <= 0.f) return;
     float r, g, b;
-    uint32_t *p32 = 0; uint16_t *p16 = 0;
-    if (fb->bpp == 32) {
+    uint32_t *p32 = 0; uint16_t *p16 = 0; uint8_t *p24 = 0;
+    if (fb->bpp == 24) {
+        p24 = (uint8_t *)fb->px + 3 * (y * fb->stride + x);
+        b = (float)p24[0]; g = (float)p24[1]; r = (float)p24[2];
+    } else if (fb->bpp == 32) {
         p32 = (uint32_t *)fb->px + y * fb->stride + x; uint32_t v = *p32;
         r = (float)((v >> 16) & 255); g = (float)((v >> 8) & 255); b = (float)(v & 255);
     } else {
@@ -55,6 +59,7 @@ static void add_light(VecFb *fb, int x, int y, VecColor c, float w)
     r = vclamp(r + c.r * w + hot, 0.f, 255.f);
     g = vclamp(g + c.g * w + hot, 0.f, 255.f);
     b = vclamp(b + c.b * w + hot, 0.f, 255.f);
+    if (p24) { p24[0] = (uint8_t)(b + .5f); p24[1] = (uint8_t)(g + .5f); p24[2] = (uint8_t)(r + .5f); return; }
     if (p32) { *p32 = 0xff000000u | ((uint32_t)(r + .5f) << 16) | ((uint32_t)(g + .5f) << 8) | (uint32_t)(b + .5f); return; }
     unsigned R = (unsigned)(r * (31.f / 255.f) + .5f);
     unsigned G = (unsigned)(g * (63.f / 255.f) + .5f);

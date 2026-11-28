@@ -77,8 +77,8 @@ static struct {
     HcUi ui;
 } S;
 /* toestand, reden van terugval, frames, formaat, breedte, hoogte, bpp, laatste pan,
- * UI-scherm, gekozen blok */
-volatile uint32_t nc_hc_screen[10];
+ * UI-scherm, gekozen blok, stride, framebuffer, aantal UI-ticks */
+volatile uint32_t nc_hc_screen[13];
 
 typedef uint64_t (*TicksFn)(void);
 typedef uint32_t (*U32Fn)(void);
@@ -100,22 +100,34 @@ static uint32_t fault(uint32_t why)
     return native_lvgl();
 }
 
+/* lv_color_format per mpp-formaat 4..14, precies de tabel die de native displayinit
+ * (0x40017c68) gebruikt; andere formaten worden daar ARGB8888 (0x10) */
+#define LV_FMT_TABLE 0x40088f84u
+static uint32_t bpp_of(uint32_t mpp)
+{
+    uint32_t lv = mpp - 4u <= 10u ? *(const volatile uint8_t *)(LV_FMT_TABLE + mpp - 4u) : 0x10u;
+    return lv == 0x12u ? 16u : lv == 0x0fu ? 24u : (lv == 0x10u || lv == 0x11u) ? 32u : 0u;
+}
+
+/* zo dicht mogelijk bij hoe de native displayinit de scherminfo gebruikt: hij kijkt
+ * niet naar de returnwaarde of smem_len en zet buffer 2 op fb + stride * hoogte */
 static int takeover(void)
 {
     S.handle = *(void *volatile *)AICFB_HANDLE;
     if (!S.handle) return 1;
     uint32_t *w = (uint32_t *)&S.info;
     for (unsigned i = 0; i < sizeof S.info / 4; i++) w[i] = 0;
-    if (ctl(FB_GET_SCREENINFO, &S.info) != 0) return 2;
+    (void)ctl(FB_GET_SCREENINFO, &S.info);
     FbInfo *f = &S.info;
     nc_hc_screen[3] = f->format; nc_hc_screen[4] = f->width; nc_hc_screen[5] = f->height; nc_hc_screen[6] = f->bpp;
-    int ok16 = f->format == MPP_FMT_RGB565 && f->bpp == 16;
-    int ok32 = (f->format == MPP_FMT_ARGB8888 || f->format == MPP_FMT_XRGB8888) && f->bpp == 32;
-    if (!ok16 && !ok32) return 3;
-    if (!((f->width == 320 && f->height == 240) || (f->width == 240 && f->height == 320))) return 4;
-    uint32_t bytes = f->bpp / 8;
-    if (!f->framebuffer || f->stride < f->width * bytes || f->stride % bytes
-        || f->smem_len < 2u * f->stride * f->height) return 5;
+    nc_hc_screen[10] = f->stride; nc_hc_screen[11] = (uint32_t)(uintptr_t)f->framebuffer;
+    uint32_t bpp = bpp_of(f->format);
+    if (!bpp) return 3;
+    f->bpp = bpp;                         /* het formaat beslist, niet het bpp-veld */
+    if (f->width < 64 || f->height < 64 || f->width > 800 || f->height > 800) return 4;
+    uint32_t bytes = bpp / 8;
+    if (f->stride < f->width * bytes && f->stride >= f->width) f->stride *= bytes;   /* stride in pixels */
+    if (!f->framebuffer || f->stride < f->width * bytes || f->stride % bytes) return 5;
     return 0;
 }
 
@@ -138,7 +150,7 @@ static void read_input(int *da, int *db, int *a, int *b)
 static void present(uint32_t now, int boot)
 {
     FbInfo *f = &S.info;
-    uint32_t bytes = f->bpp / 8, size = f->stride * f->height;
+    uint32_t bytes = f->bpp / 8, size = f->stride * f->height;   /* buffer 2 = fb + size, zoals native */
     uint8_t *buf = f->framebuffer + S.back * size;
     VecFb fb = { buf, (int)f->width, (int)f->height, (int)(f->stride / bytes), (int)f->bpp };
     if (boot) vec_boot(&fb, now - S.boot_t0);
@@ -155,6 +167,7 @@ static void present(uint32_t now, int boot)
 uint32_t nc_hc_ui_tick(void)
 {
     uint32_t now = now_ms();
+    nc_hc_screen[12]++;
     if (!S.started) { S.started = 1; S.t0 = now; }
     if (S.state == FAULT) return native_lvgl();
     if (S.state == WAIT) {

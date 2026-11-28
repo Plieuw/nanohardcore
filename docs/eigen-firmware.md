@@ -228,6 +228,28 @@ native LVGL/knop-functies onderschept):
 Kosten per frame: opstart ~3,8 M instructies (10,5 ms), homescherm ~7,5 M (20,9 ms),
 alleen bij een wijziging.
 
+**Hardwaretest v0.1-beta1 (2026-11-28):**
+- De 909 klinkt, dus fase A werkt op de pedal.
+- Het scherm bleef Livtra en de knoppen bedienden de Livtra-UI: de overname is niet gebeurd.
+- Vermoedelijke oorzaak: mijn controle was strenger dan de native displayinit. Ik eiste
+  ioctl-return 0, een `bpp`-veld van 16/32 en `smem_len` ≥ 2 frames. De native code
+  controleert geen van die drie en leidt de pixelgrootte af uit `format` via tabel
+  `0x40088f84`.
+- Gerepareerd: de overname volgt nu de native code. Pixelgrootte via die tabel (16/24/32),
+  returnwaarde en `smem_len` genegeerd, buffer 2 = fb + stride·h, elke resolutie van
+  64..800. De firmware bevat panelmodi voor 240×320 én 320×240 (`0x3008b2b8`…`b3e4`).
+- **Hoorbare diagnose (beta, `NC_DIAG_BEEPS`):** ~7 s na de start van de eigen keten piept
+  de pedal zo vaak als de reden waarom het scherm niet is overgenomen:
+
+| piepjes | betekenis |
+|---|---|
+| geen | scherm is van HARDCORE |
+| 1 | geen aicfb-handle |
+| 3 | onbekend pixelformaat |
+| 4 | onwaarschijnlijke resolutie |
+| 5 | framebuffer of stride ongeldig |
+| 6 | de UI-haak (`0x40017ab2`) is nooit aangeroepen |
+
 **Op de pedal te bevestigen** (instelbaar in `screen.c`):
 1. Welke encoder links zit: `NC_UI_A_IS_ENC1`. Nu enc1 = A, de knop met de native
    lange druk.
