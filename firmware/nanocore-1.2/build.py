@@ -169,7 +169,7 @@ def main():
     pad_end = (fit_end + 2047) & ~2047
     if any(stock[fit_end:pad_end]): raise SystemExit('FIT-opvulling is niet leeg')
     manifest = export_octave_web_patch.export(stock[:pad_end], image)
-    manifest.update({'effect': 'HARDCORE', 'release': 'v0.1-beta3',
+    manifest.update({'effect': 'HARDCORE', 'release': 'v0.1-beta4',
                      'replaces': ['native effectketen + versterker/NAM (na 3 s)', 'Livtra-UI en knoppen (na 3 s)'],
                      'workInProgress': True, 'hardwareTested': False,
                      'payloadSha256': boot['payload_sha256'], 'elfSha256': sha(elf)})
