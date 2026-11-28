@@ -279,12 +279,31 @@ Daarna blijft het beeld staan met langzame sterren. Gemaakt in de geest van de A
 
 ## Fase C: apparaat
 
-- Eigen opstartscherm, zodra het scherm vrij is: **gebouwd** (`vec_boot`, zie Vector-UI). Nog aan te sluiten op de framebuffer (fase B).
-- Eigen presets (knopstanden en CC-staat) in een eigen stuk van de `presets`-partitie.
-  Eerst uitzoeken welk deel vrij of veilig is.
+- Eigen opstartscherm: **gebouwd en op de pedal bevestigd** (v0.1-beta2, 2026-11-28).
 - MIDI: de eigen indeling bestaat al. Programmawissel kan eigen presets laden.
 - ToneCommand-protocol (NC70/71) niet nodig. **Behalve de updater-SysEx**: die blijft
   native, of wordt door onze code nagedaan (regel 1).
+- Eigen presets: **opslag uitgezocht, nog niet gebouwd** (zie hieronder).
+
+**Bevindingen presets-opslag (stock 1.2, 2026-11-28):**
+
+| onderwerp | bevinding | adres |
+|---|---|---|
+| partities | MTD-string `spi0.0:152k(spl),8k(env),848k(os),688k(presets),348k(ui_asset),4k(device_info)`, flash `norflash0`; per partitie `blk_%s` | `0x400883c0` |
+| partitie zoeken | `0x4000e65e(naam)` → partitie-object (0x40 B: naam +4, flash-naam +0x1c, offset +0x34, grootte +0x38) | |
+| opslagmodule presets | handle `0x30113bd8`. Controle `0x400350e6`: grootte ≥ `0xac000` en wis-eenheid `0x1000`. Lezen `0x40035116(off, buf, len)`, schrijven `0x4003515e(off, buf, len)`, nog een functie `0x400351a6`. Offsets zijn partitie-relatief | |
+| blok-API | 4K-blok wissen `0x40035e3a(off)`, schrijven en verifiëren `0x40035cbe`, blok schrijven `0x40035eda(off, buf)`, controlesommen `0x400356cc`/`0x400356fc` | |
+| index | A/B-journaal van één indexrecord (`0x650` B plus een trailer van 16 B) op **`0xaa000` en `0xab000`**. Het actieve blok staat in `0x30113c18`. Kop van `0x614` B op offset 0 | `0x400363a8`… |
+| ruimte | `0x0`…`0xaa000` wordt dynamisch toegewezen (blokken met kop en offset). Er is **geen vast vrij gebied**: ook de laatste 8 KB is in gebruik (het indexjournaal) | |
+
+Gevolg: zelf in de partitie wissen of schrijven kan de Livtra-presets van de gebruiker
+beschadigen. Veilige opties:
+1. **Via de native presetroute**: de HARDCORE-instellingen in de effectparameters van een
+   eigen presetplek zetten en de native "preset opslaan" aanroepen. De opslagmodule doet
+   dan het wissen, het journaal en de controle. Nog uit te zoeken: de RAM-structuur van
+   een preset en de opslaan- en laadfunctie.
+2. **Eerst zonder flash**: presets in RAM (weg bij uitzetten), en via MIDI te dumpen en
+   terug te zetten. Geen risico voor de flash.
 
 ## Fase D (alleen na bewijs)
 
@@ -292,3 +311,22 @@ Volledig eigen OS uit de Luban-Lite-SDK; alleen `spl` en `env` blijven over. Voo
 aantonen dat de bootloader of de BROM de updater ook opent als de app niet opstart,
 bijvoorbeeld een toets bij het aanzetten of de BROM-USB-modus. De chips zitten achter het
 scherm en zijn vrijwel onbereikbaar. Zonder die route betekent één fout een brick.
+
+**D0, stand van het bewijs (2026-11-28): niet aangetoond.**
+- De updater ("Livtra Lupgrader", USB `33c3:6678`, DFU-interface `os`, blokken van
+  4096 B) zit in de SPL. Het OS start hem na de SysEx `F0 7D 44 46 55 01 F7`
+  (re-nanocore `tools/custom_fx/RAW_DFU.txt`). Via DFU is alleen de partitie `os`
+  bereikbaar, de SPL niet.
+- re-nanocore heeft de SPL (155.648 B) en de updater (99.704 B) ooit uitgelezen met een
+  tijdelijke image (`evidence/firmware-decoding.json`, alleen hashes). De binaries zijn
+  niet openbaar. Daarom is niet vast te stellen of de SPL de updater ook opent zonder
+  werkend OS, met een toets of na een mislukte FIT-controle.
+- Het OS zelf opent de partitie `spl` (`"spl"` op `0x4008c000`, gebruikt bij `0x400384d6`).
+  Onze code kan de SPL dus **alleen-lezen** via dezelfde MTD-route uitlezen.
+
+**Veilige volgende stap voor D (D1):** een alleen-lezende SPL-uitleesfunctie in de
+HARDCORE-firmware. Op een eigen SysEx leest hij de partitie `spl` en stuurt die in
+SysEx-blokken met controlesom terug over USB-MIDI. Een pagina zoals de installer slaat het
+op. Er wordt niets geschreven. Met die dump is te analyseren of er een herstelroute
+zonder app bestaat. Pas met dat bewijs gaat D verder.
+
