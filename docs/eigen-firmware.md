@@ -310,6 +310,23 @@ Daarna blijft het beeld staan met langzame sterren. Gemaakt in de geest van de A
 | index | A/B-journaal van één indexrecord (`0x650` B plus een trailer van 16 B) op **`0xaa000` en `0xab000`**. Het actieve blok staat in `0x30113c18`. Kop van `0x614` B op offset 0 | `0x400363a8`… |
 | ruimte | `0x0`…`0xaa000` wordt dynamisch toegewezen (blokken met kop en offset). Er is **geen vast vrij gebied**: ook de laatste 8 KB is in gebruik (het indexjournaal) | |
 
+**Presetbank (gevonden 2026-11-28):**
+
+| functie | betekenis | adres |
+|---|---|---|
+| bank | 64 plekken. Preset *n* staat op partitie-offset **`(n+4)·0x400`**, max 1 KB. Indextabel `0x400bfe18` (+0x14 + n·0x18: crc32 op +0x14, lengte op +0x18). Actieve preset `0x400bfe1e` | |
+| lezen | `0x40037544(n, buf, cap, &len)`: leest en controleert de CRC (`0x4000ec12`) | |
+| schrijven | `0x4003785a(n, data, len ≤ 0x400)`. Eist dat ontleden (`0x40019e2c` → struct van `0x35c` B) plus opnieuw serialiseren (`0x40019c7e`) **exact** dezelfde bytes geeft, en een niet-lege naam (16 B op +2). Daarna flash met journaal en CRC. Aangeroepen door ToneCommand (`0x40018368`, `0x40019ad8`) | |
+| wissen | `0x40037608(eerste, aantal)`; met (0, 64) wordt de hele bank geformatteerd (`0x40035f74`) | |
+| actieve preset | `0x40037316(&n)` haalt hem op; `0x40037352(n)` zet hem (journaal `"1VJP"` op `0x16000`/`0x17000`) | |
+| formaat | TLV (type, lengte, waarde): 1 = ?, 2 = naam (16), 3 = ?, `0x10` = effectslot (8 slots van `0x64` B op struct+0x1c, slotnummer ≤ 7), `0x20`…`0x2c` via sprongtabel `0x400890fc`. Typen > `0x25` worden genegeerd, en vallen daardoor bij het herserialiseren weg (het schrijven wordt dan geweigerd). Versie: struct+0 = 7. Per slot controleert `0x40019b4a`/`0x40019b1e`/`0x40019ba8` het model en het aantal parameters | `0x40019e2c` |
+
+Gevolg voor HARDCORE-presets: er past geen eigen blok in. De waarden moeten in
+**geldige** Livtra-parameters van een eigen presetplek staan, en het schrijven moet via
+`0x4003785a`, zodat de native controle, het journaal en de CRC blijven werken. Eerst
+echte presets bekijken: de uitleesfunctie leest daarom ook `presets` (`P R E`) en `env`
+(`E N V`), alleen lezen (v0.1-beta5).
+
 Gevolg: zelf in de partitie wissen of schrijven kan de Livtra-presets van de gebruiker
 beschadigen. Veilige opties:
 1. **Via de native presetroute**: de HARDCORE-instellingen in de effectparameters van een
@@ -354,7 +371,7 @@ scherm en zijn vrijwel onbereikbaar. Zonder die route betekent één fout een br
   - schrijffuncties per poort: poort 0 = **USB** (`0x4002ffc6`, gezet via `0x40018d34`),
     poort 1 = **BLE** (de radiomodule zet hem op 0 bij een verbreking).
 
-**D1 gebouwd (2026-11-28): alleen-lezende SPL-dump.**
+**D1 gebouwd (2026-11-28): alleen-lezende SPL-dump** (v0.1-beta4; vanaf beta5 ook `presets` en `env`).
 - Startsein over USB: CC 84 met de waarden `S`, `P`, `L` (`nc_midi_in`, alleen poort 0).
 - `screen.c` leest per UI-tick (~30 ms) 768 B via `0x4000e65e`/`0x4000e6ac` en verstuurt
   dat met de native verzender als `F0 7D 4E 43 5C <7-bit: "NHS1", offset, totaal, crc32,

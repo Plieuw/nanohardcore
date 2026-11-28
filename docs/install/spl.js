@@ -26,10 +26,10 @@ const u32 = (b, o) => (b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24) >
 export function parseChunk(msg) {
   if (msg.length < 8 || msg[0] !== 0xf0 || msg[1] !== 0x7d || msg[2] !== 0x4e || msg[3] !== 0x43 || msg[4] !== 0x5c || msg[msg.length - 1] !== 0xf7) return null;
   const raw = unpack7(msg.subarray(5, msg.length - 1));
-  if (raw.length < 16 || raw[0] !== 0x4e || raw[1] !== 0x48 || raw[2] !== 0x53 || raw[3] !== 0x31) throw Error('Onbekend SPL-blok.');
+  if (raw.length < 16 || raw[0] !== 0x4e || raw[1] !== 0x48 || !'SPE'.includes(String.fromCharCode(raw[2])) || raw[3] !== 0x31) throw Error('Onbekend blok.');
   const offset = u32(raw, 4), total = u32(raw, 8), crc = u32(raw, 12), data = raw.subarray(16);
   if (crc32(data) !== crc) throw Error(`CRC klopt niet bij offset ${offset}.`);
-  return {offset, total, data};
+  return {offset, total, data, tag: String.fromCharCode(raw[2])};
 }
 
 /** Blokken verzamelen tot de partitie compleet is. */
@@ -52,11 +52,18 @@ export async function sha256hex(bytes) {
 }
 
 // ---- pagina ----
+export const PARTS = {S: {key: [0x53, 0x50, 0x4c], file: 'nanocore-spl.bin', sha: KNOWN_SPL_SHA256},
+                      P: {key: [0x50, 0x52, 0x45], file: 'nanocore-presets.bin'},
+                      E: {key: [0x45, 0x4e, 0x56], file: 'nanocore-env.bin'}};
+
 if (typeof document !== 'undefined') {
   const $ = id => document.getElementById(id);
   const status = (t, d = '') => { $('status').textContent = t; $('detail').textContent = d; };
-  $('start').onclick = async () => {
-    $('start').disabled = true; $('error').hidden = true; $('save').hidden = true;
+  const buttons = ['start', 'presets', 'env'].filter(id => $(id));
+  for (const [id, tag] of [['start', 'S'], ['presets', 'P'], ['env', 'E']]) if ($(id)) $(id).onclick = () => dump(tag);
+  async function dump(tag) {
+    const part = PARTS[tag];
+    buttons.forEach(id => { $(id).disabled = true; }); $('error').hidden = true; $('save').hidden = true;
     try {
       const midi = await navigator.requestMIDIAccess({sysex: true});
       const pick = list => [...list.values()].find(p => /nano\s*core/i.test(p.name || '')) || [...list.values()][0];
@@ -64,10 +71,10 @@ if (typeof document !== 'undefined') {
       if (!out || !inp) throw Error('Geen NanoCore gevonden via USB-MIDI. Sluit de pedal met USB aan en wacht tot HARDCORE draait.');
       const col = new Collector();
       const done = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(Error('Geen (volledige) dump ontvangen binnen 60 s. Draait HARDCORE beta4 of nieuwer, en is het scherm overgenomen?')), 60000);
+        const timer = setTimeout(() => reject(Error('Geen (volledige) dump ontvangen binnen 3 minuten. Draait HARDCORE beta5 of nieuwer (beta4 kan alleen de SPL), en is het scherm overgenomen?')), 180000);
         inp.onmidimessage = ev => {
           try {
-            const c = parseChunk(ev.data); if (!c) return;
+            const c = parseChunk(ev.data); if (!c || c.tag !== tag) return;
             const complete = col.add(c);
             $('progress').value = Math.round(100 * col.have / col.total);
             status('Bezig met lezen…', `${col.have} van ${col.total} bytes`);
@@ -75,16 +82,15 @@ if (typeof document !== 'undefined') {
           } catch (e) { clearTimeout(timer); reject(e); }
         };
       });
-      for (const v of [0x53, 0x50, 0x4c]) out.send([0xb0, 84, v]);   // CC 84: S P L
-      status('Startsein verstuurd', 'Op het scherm van de pedal verschijnt "SPL LEZEN".');
-      const spl = await done;
-      const sha = await sha256hex(spl);
-      const known = sha === KNOWN_SPL_SHA256;
-      status(known ? 'Klaar: identiek aan de bekende SPL' : 'Klaar: andere SPL dan de bekende',
-             `${spl.length} bytes, SHA-256 ${sha}` + (known ? '' : ' (dat kan: andere hardware- of bootloaderversie; bewaar het bestand)'));
-      const url = URL.createObjectURL(new Blob([spl], {type: 'application/octet-stream'}));
-      $('save').href = url; $('save').download = 'nanocore-spl.bin'; $('save').hidden = false;
+      for (const v of part.key) out.send([0xb0, 84, v]);   // CC 84: drie tekens kiezen de partitie
+      status('Startsein verstuurd', 'Op het scherm van de pedal verschijnt "… LEZEN".');
+      const img = await done;
+      const sha = await sha256hex(img);
+      const note = !part.sha ? '' : sha === part.sha ? ' — identiek aan de bekende SPL' : ' — andere SPL dan de bekende (bewaar het bestand)';
+      status('Klaar' + note, `${img.length} bytes, SHA-256 ${sha}`);
+      const url = URL.createObjectURL(new Blob([img], {type: 'application/octet-stream'}));
+      $('save').href = url; $('save').download = part.file; $('save').textContent = 'Download ' + part.file; $('save').hidden = false;
     } catch (e) { $('error').textContent = e.message; $('error').hidden = false; status('Gestopt'); }
-    finally { $('start').disabled = false; }
-  };
+    finally { buttons.forEach(id => { $(id).disabled = false; }); }
+  }
 }

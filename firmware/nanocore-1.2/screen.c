@@ -59,7 +59,8 @@
 /* ---- fase D1: SPL alleen-lezen uitlezen (docs/eigen-firmware.md) ----
  * De partitie "spl" wordt gelezen met dezelfde functies die de native updater-start
  * (0x400384be) gebruikt, en per blok als SysEx verstuurd met de native verzender:
- *   F0 7D 4E 43 5C <7-bit-verpakt: "NHS1", offset, totaal, crc32, data[<=768]> F7
+ *   F0 7D 4E 43 5C <7-bit-verpakt: "NH" tag "1" (S = spl, P = presets, E = env),
+ *   offset, totaal, crc32, data[<=768]> F7
  * Er wordt niets geschreven. */
 #define MTD_FIND          0x4000e65eu   /* (naam) -> partitie (+0x38 = grootte) */
 #define MTD_READ          0x4000e6acu   /* (partitie, offset, buf, len) -> gelezen */
@@ -69,11 +70,12 @@
 typedef void *(*FindFn)(const char *);
 typedef int (*ReadFn)(void *, uint32_t, void *, uint32_t);
 typedef void (*SendFn)(int, int, const void *, uint32_t);
-extern volatile uint32_t nc_hc_spl_req;
+extern volatile uint32_t nc_hc_spl_req, nc_hc_spl_which;
 /* toestand, offset, totaal, blokken, crc32 van alles, aanvragen afgehandeld */
 volatile uint32_t nc_hc_spl[6];
 static uint8_t spl_buf[16 + SPL_CHUNK];
 static void *spl_part;
+static char spl_tag = 'S';
 
 static uint32_t crc32_upd(uint32_t c, const uint8_t *p, uint32_t n)
 {
@@ -89,8 +91,11 @@ static int spl_step(void)
     if (nc_hc_spl[0] == 0) {
         if (nc_hc_spl[5] == nc_hc_spl_req) return 0;
         nc_hc_spl[5] = nc_hc_spl_req;
-        static const char NAME[] = "spl";
-        spl_part = ((FindFn)MTD_FIND)(NAME);
+        static const char *const NAMES[4] = { "spl", "spl", "presets", "env" };
+        static const char TAGS[4] = { 'S', 'S', 'P', 'E' };
+        uint32_t w = nc_hc_spl_which < 4u ? nc_hc_spl_which : 1u;
+        spl_tag = TAGS[w];
+        spl_part = ((FindFn)MTD_FIND)(NAMES[w]);
         uint32_t total = spl_part ? *(volatile uint32_t *)((uint8_t *)spl_part + 0x38) : 0;
         if (!spl_part || total == 0 || total > 0x100000u) { nc_hc_spl[0] = 3; return 0; }
         nc_hc_spl[0] = 1; nc_hc_spl[1] = 0; nc_hc_spl[2] = total; nc_hc_spl[3] = 0; nc_hc_spl[4] = 0;
@@ -100,7 +105,7 @@ static int spl_step(void)
     uint32_t n = total - off < SPL_CHUNK ? total - off : SPL_CHUNK;
     uint8_t *d = spl_buf + 16;
     if (((ReadFn)MTD_READ)(spl_part, off, d, n) != (int)n) { nc_hc_spl[0] = 4; return 0; }
-    spl_buf[0] = 'N'; spl_buf[1] = 'H'; spl_buf[2] = 'S'; spl_buf[3] = '1';
+    spl_buf[0] = 'N'; spl_buf[1] = 'H'; spl_buf[2] = (uint8_t)spl_tag; spl_buf[3] = '1';
     put32(spl_buf + 4, off); put32(spl_buf + 8, total); put32(spl_buf + 12, crc32_upd(0, d, n));
     ((SendFn)NC_SYSEX_SEND)(0, SPL_CMD, spl_buf, 16 + n);
     nc_hc_spl[4] = crc32_upd(nc_hc_spl[4], d, n);
@@ -126,7 +131,7 @@ typedef struct {                        /* Luban-Lite aicfb_screeninfo (zoals 0x
 enum { WAIT = 0, ON = 1, FAULT = 2 };
 static struct {
     uint32_t started, t0, state, boot_t0, last_draw, back, deb_a, deb_b, a, b, sig, cpu_t, spl_t, spl_shown;
-    char msg[32], spl_msg[24];
+    char msg[32], spl_msg[28];
     void *handle;
     FbInfo info;
     HcUi ui;
@@ -265,13 +270,13 @@ uint32_t nc_hc_ui_tick(void)
     /* SPL-dump (fase D1): één blok per ~32 ms, voortgang als melding */
     if (nc_hc_spl[0] == 1 || nc_hc_spl[5] != nc_hc_spl_req) {
         if (now - S.spl_t >= 30u) { S.spl_t = now; spl_step(); }
-        char *e = S.spl_msg; const char *w = "SPL LEZEN ";
+        char *e = S.spl_msg; const char *w = spl_tag == 'P' ? "PRESETS LEZEN " : spl_tag == 'E' ? "ENV LEZEN " : "SPL LEZEN ";
         while (*w) *e++ = *w++;
         e = put_u(e, nc_hc_spl[2] ? nc_hc_spl[1] * 100u / nc_hc_spl[2] : 0u); *e++ = '%'; *e = 0;
         S.ui.msg = S.spl_msg; S.ui.msg_until = now + 1500u;
     } else if (nc_hc_spl[0] >= 2 && S.spl_shown != nc_hc_spl[5]) {
         S.spl_shown = nc_hc_spl[5];
-        S.ui.msg = nc_hc_spl[0] == 2 ? "SPL KLAAR" : "SPL FOUT"; S.ui.msg_until = now + 4000u;
+        S.ui.msg = nc_hc_spl[0] == 2 ? "LEZEN KLAAR" : "LEZEN FOUT"; S.ui.msg_until = now + 4000u;
     }
     uint32_t since = now - S.last_draw;
     if (now - S.boot_t0 < VEC_BOOT_MS) {

@@ -15,6 +15,16 @@ ontwerp en `docs/` voor de Pages-site.
 - **Bewijs met een meting.** Een PR die het geluid verandert, laat zien wat er gemeten is (een tabel in de PR-tekst, en waar zinnig een nieuwe check in `test/check.py`). Vertrouw niet op het spectrogram alleen: kleurschalen verzadigen.
 - **CPU telt.** Draai `make rv` en zet de MIPS-regels in de PR. Elke instructie per sample telt mee voor de 48 kHz-callback op de pedal (firmware 1.2: 64 frames per blok, 1,33 ms).
 
+## Controles per uitgave (afspraak met de eigenaar, 2026-11-28)
+- Zolang de eigenaar een uitgave nog niet als werkend heeft bevestigd: volledige emulatie
+  (`emulate.py`) bij elke wijziging aan de firmwarecode, plus de installercheck (node:
+  stock → nieuw, vorige → nieuw, terugzetten = stock).
+- Heeft de eigenaar gezegd dat de nanohardcore werkt: **lichter**. Volledige emulatie
+  alleen als de firmwarecode verandert. Verandert alleen het manifest of de docs, dan is het
+  bewijs dat de ELF byte voor byte gelijk is aan de geteste build genoeg, plus de
+  installercheck. Op het apparaat kunnen dan ook de diagnose-piepjes uit
+  (`NC_DIAG_BEEPS 0`), als de eigenaar dat wil.
+
 ## Codeconventies (`dsp/` en `ui/`)
 - **UI-blokken:** `ui/vec.c` (engine, font, opstartscherm) en `ui/hcui.c` (schermen, gebaren, parametertabel). `firmware/nanocore-1.2/screen.c` koppelt ze aan de pedal. Voeg je een CC toe, zet hem dan ook in de parametertabel van `hcui.c`.
 - **De UI is volledig vector** (wens van de eigenaar): alles op het scherm bestaat uit lijnsegmenten via `ui/vec.c` (`vec_line`, het streepfont, `vec_text3d`). Geen bitmaps, geen bitmapfont, geen beeldbestanden in de firmware.

@@ -117,8 +117,9 @@ int nc_hc_fase_a_own(void);
 /* 1 = bericht overgenomen (CC, noot aan/uit terwijl HARDCORE het FX2-effect is),
  * 0 = laat de originele firmware het afhandelen (programmawissel, SysEx, klok, ...) */
 #define NC_SPL_CC 84
-volatile uint32_t nc_hc_spl_req;          /* telt aanvragen voor een SPL-dump */
-static uint8_t spl_seq;
+volatile uint32_t nc_hc_spl_req;          /* telt aanvragen voor een partitie-dump */
+volatile uint32_t nc_hc_spl_which;        /* 1 = spl, 2 = presets, 3 = env */
+static uint32_t spl_last;
 
 int nc_midi_in(uint32_t port, uint32_t status, uint32_t d1, uint32_t d2, uint32_t has_d2)
 {
@@ -130,9 +131,12 @@ int nc_midi_in(uint32_t port, uint32_t status, uint32_t d1, uint32_t d2, uint32_
     /* fase D1: CC 84 met de waarden 'S' 'P' 'L' achter elkaar = SPL alleen-lezen uitlezen
      * (screen.c doet het werk in de UI-taak). Alleen via USB (poort 0). */
     if (t == 0xb0 && d1 == NC_SPL_CC && port == 0) {
-        static const uint8_t KEY[3] = { 'S', 'P', 'L' };
-        spl_seq = (uint8_t)((d2 & 0x7f) == KEY[spl_seq] ? spl_seq + 1 : (d2 & 0x7f) == KEY[0] ? 1 : 0);
-        if (spl_seq == 3) { spl_seq = 0; nc_hc_spl_req++; }
+        /* drie waarden achter elkaar kiezen de partitie: S P L = spl, P R E = presets,
+         * E N V = env (alleen lezen) */
+        spl_last = (spl_last << 8) | (d2 & 0x7f);
+        uint32_t k = spl_last & 0xffffffu;
+        uint32_t which = k == 0x53504cu ? 1u : k == 0x505245u ? 2u : k == 0x454e56u ? 3u : 0u;
+        if (which) { spl_last = 0; nc_hc_spl_which = which; nc_hc_spl_req++; }
         return 1;
     }
     uint32_t h = midi_head;
